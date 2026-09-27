@@ -20,7 +20,7 @@
 - Domains come from env (`SITE_DOMAIN`, `API_DOMAIN`), not hardcoded. `www` redirects to the apex.
 - Back in production: `NODE_ENV=production`, `TRUST_PROXY=1`, `SWAGGER_ENABLED=false`, `CORS_ORIGINS=https://<site domain>`; migrations run on boot (`migrationsRun: true`). Seed passwords from `.env.example` are refused in production.
 - Front: Next.js `output: "standalone"` for a small runtime image.
-- Front branch `feat/early-deploy` is stacked on `feat/front-base` (PR #1 still open).
+- Front branch `feat/early-deploy` was branched from `feat/front-base`; front PR #1 was already merged, so front PR #2 targets `main`.
 
 ## TDD
 
@@ -53,6 +53,8 @@
 - 2026-09-27: feature started, doc created, branches `feat/early-deploy` in both repos.
 - 2026-09-27: T1–T5 implemented. Front: `npm run lint`/`npm test`/`npm run build` all pass, `.next/standalone/server.js` confirmed. Back: `npm run lint` (--fix, no unrelated files touched)/`npm test` (66 tests)/`npm run build` all pass, `dist/main.js` and `dist/migrations/*.js` confirmed. Both workflow YAML files parsed successfully with `js-yaml`. `docker version` confirms Docker Desktop's daemon is not running, so `docker build` and `docker compose -f deploy/compose.yml config` were not run — reported as unavailable, to be verified in CI or locally later.
 - T5 env example is named `deploy/env.production.example` (no leading dot) on purpose: a local permission rule denies writing `.env*` files, and a non-dotted name is not confused with a real `.env`. The runbook copies it to `.env` on the server. `.gitignore` (`.env`, `.env.local`, `.env.*.local`) does not affect it.
+
+- 2026-09-27: branches pushed; PRs opened: back #1, front #2.
 
 ## Next step
 
