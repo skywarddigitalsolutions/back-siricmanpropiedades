@@ -1,0 +1,21 @@
+node_modules
+dist
+.git
+.github
+
+# project docs and planning artefacts, not needed in the image
+docs
+odd
+deploy
+README.md
+
+# tests and coverage
+coverage
+**/*.spec.ts
+
+# env and local files
+.env
+.env.*
+!.env.example
+.DS_Store
+npm-debug.log*
