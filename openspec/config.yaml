@@ -1,0 +1,74 @@
+schema: spec-driven
+
+project: siricmanpropiedades
+repo: back-siricmanpropiedades
+branch: feat/properties-domain
+
+context: |
+  Tech stack: NestJS 11 + TypeORM 0.3 + Postgres 16, TypeScript 5.7 (commonjs).
+  Architecture: single Nest app, feature modules under src/ (auth, mfa, users,
+  roles, user-roles, audit, seed, maintenance). Global prefix /api, ValidationPipe
+  (whitelist, forbidNonWhitelisted, transform), helmet, CORS via CORS_ORIGINS.
+  Auth: bearer JWT (no refresh token yet), MFA (TOTP/otplib) mandatory for admin,
+  roles admin|manager|user via @RoleProtected + UserRoleGuard. DTOs validated with
+  class-validator/class-transformer. Migrations under src/migrations, run via
+  typeorm CLI (ts-node + tsconfig-paths), typeorm.forRootAsync in app.module.ts.
+  Style: ESLint (typescript-eslint recommendedTypeChecked) + Prettier (singleQuote,
+  trailingComma all), relaxed unsafe-* rules in *.spec.ts.
+
+strict_tdd: true
+
+projects:
+  - path: .
+    stack: "NestJS 11 (TypeScript 5.7, commonjs, TypeORM 0.3, Postgres 16)"
+    test_command: "npm test"
+    test_layers:
+      unit: true       # jest + ts-jest, colocated *.spec.ts under src/ (10 files found)
+      integration: false # no @nestjs/testing E2E/WebApplicationFactory-style suite found
+      e2e: false         # no test/ dir, no supertest/jest-e2e config found
+    coverage:
+      available: true
+      command: "npm run test:cov"
+    quality:
+      linter:
+        command: "npm run lint"   # eslint --fix "src/**/*.ts"
+      type_checker:
+        command: "npx tsc -p tsconfig.build.json --noEmit"  # no dedicated script; nest build type-checks via tsc
+      formatter:
+        command: "npm run format" # prettier --write "src/**/*.ts"
+
+testing:
+  strict_tdd: true
+  strict_tdd_source: "user global config (Strict TDD Mode: enabled) + workspace-level command npm test covers the sole discovered project"
+  detected: "2026-09-27"
+  workspace_level_test_command: "npm test"
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes (especially migrations)
+    - Note impact on auth/roles (admin|manager|user) and MFA when relevant
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Call out DTO validation rules (class-validator) explicitly
+  design:
+    - Document new/changed TypeORM entities and migrations
+    - Document guard/role requirements for new endpoints
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+    - Forecast the 400-changed-line review budget per this workspace's review policy
+  apply:
+    guidelines:
+      - Follow existing module layout (module/controller/service/dto/entities)
+      - Follow existing DTO validation and role-guard patterns
+      - Add/update TypeORM migrations for schema changes; never edit InitSchema
+    tdd: true
+    test_command: "npm test"
+  verify:
+    test_command: "npm test"
+    build_command: "npm run build"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+    - Never commit, push, or switch branches from this SDD context; the user owns branch/PR/merge decisions
