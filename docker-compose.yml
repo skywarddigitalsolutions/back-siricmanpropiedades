@@ -3,7 +3,7 @@
 # evita que el volumen/contenedor de la base choque con los de otros
 # proyectos que tengas corriendo en Docker, sin importar en qué carpeta
 # clones el repo.
-name: base-auth
+name: siricman-dev
 
 services:
   db:

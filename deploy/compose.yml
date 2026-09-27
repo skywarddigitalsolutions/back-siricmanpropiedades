@@ -1,0 +1,77 @@
+# Production compose file. Images are built in GitHub Actions and pushed to
+# GHCR (see .github/workflows/docker-publish.yml in both repos); this file
+# only pulls and runs them. Postgres never publishes a port - Docker bypasses
+# ufw, so the only way to keep the database off the public internet is to
+# never map its port at all. Only Caddy publishes 80/443.
+name: siricman
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    env_file:
+      - .env
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: ghcr.io/skywarddigitalsolutions/back-siricmanpropiedades:latest
+    restart: unless-stopped
+    logging: *default-logging
+    env_file:
+      - .env
+    environment:
+      # Forced regardless of what .env says: inside this compose network the
+      # database is always reachable at the "db" service name.
+      DB_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    image: ghcr.io/skywarddigitalsolutions/siricmanpropiedades:latest
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+
+volumes:
+  db_data:
+  caddy_data:
+  caddy_config:
