@@ -55,7 +55,9 @@
 - T5 env example is named `deploy/env.production.example` (no leading dot) on purpose: a local permission rule denies writing `.env*` files, and a non-dotted name is not confused with a real `.env`. The runbook copies it to `.env` on the server. `.gitignore` (`.env`, `.env.local`, `.env.*.local`) does not affect it.
 
 - 2026-09-27: branches pushed; PRs opened: back #1, front #2.
+- 2026-09-27: back PR #1 and front PR #2 merged; both GHCR workflows green; images anonymously pullable. Fixed seed password guidance (back PR #2: `openssl rand -hex 32` violates the 50-char/uppercase login policy; now `echo "Sm$(openssl rand -hex 12)"`).
+- 2026-09-27: deployed on the VPS following the runbook. Verified from outside: `https://siricmanpropiedades.com.ar` 200 (Next.js), `https://api.siricmanpropiedades.com.ar/api/roles` 401 (auth required), `http://www.` 308 → `https://www.` 301 → apex, TCP 5432 closed. API logs: migrations ran, seed created admin/manager/user1, Caddy obtained Let's Encrypt certificates.
 
 ## Next step
 
-Feature implementation complete. Remaining before this can ship: (1) merge both `feat/early-deploy` branches (front is stacked on `feat/front-base`, PR #1) to trigger the publish workflows and verify a real `docker build`/`docker compose config` in CI; (2) follow the runbook on the VPS.
+Feature done. Operator follow-up: set `RUN_SEED=false` in the server `.env` and `docker compose up -d`; first admin login requires MFA setup (`docs/04-login-mfa.md`).
