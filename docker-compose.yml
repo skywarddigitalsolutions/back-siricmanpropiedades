@@ -1,0 +1,27 @@
+# "name" prefija todos los recursos (contenedor, red, volumen) que crea este
+# archivo. Cambialo por el nombre de tu proyecto cuando clones este repo -
+# evita que el volumen/contenedor de la base choque con los de otros
+# proyectos que tengas corriendo en Docker, sin importar en qué carpeta
+# clones el repo.
+name: base-auth
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-your_db_password}
+      POSTGRES_DB: ${DB_NAME:-auth_roles_db}
+    ports:
+      - '${DB_PORT:-5432}:5432'
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-auth_roles_db}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  db_data:
