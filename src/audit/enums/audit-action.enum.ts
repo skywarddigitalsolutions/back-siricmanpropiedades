@@ -10,4 +10,5 @@ export enum AuditAction {
   ROLE_ASSIGNED = 'role.assigned',
   MFA_ENABLED = 'mfa.enabled',
   MFA_DISABLED = 'mfa.disabled',
+  NEIGHBORHOOD_CREATED = 'neighborhood.created',
 }
