@@ -68,9 +68,17 @@ Generá los secretos con `openssl` (disponible en cualquier Linux moderno) y
 pegalos en los campos correspondientes del `.env`:
 
 ```bash
-openssl rand -hex 32   # usalo para JWT_SECRET, MFA_ENCRYPTION_KEY,
-                        # POSTGRES_PASSWORD / DB_PASSWORD, y cada
-                        # SEED_*_PASSWORD (generá uno distinto por cada uno)
+openssl rand -hex 32   # usalo para JWT_SECRET, MFA_ENCRYPTION_KEY y
+                        # POSTGRES_PASSWORD / DB_PASSWORD (uno distinto por cada uno)
+```
+
+Las contraseñas `SEED_*_PASSWORD` son contraseñas de login, y la API exige
+entre 6 y 50 caracteres con al menos una mayúscula, una minúscula y un
+número. `openssl rand -hex 32` no sirve para estas (64 caracteres, sin
+mayúsculas). Generá cada una con:
+
+```bash
+echo "Sm$(openssl rand -hex 12)"   # 26 caracteres: mayúscula, minúscula y números
 ```
 
 Completá también `SITE_DOMAIN`, `API_DOMAIN` y `ACME_EMAIL` con los datos
