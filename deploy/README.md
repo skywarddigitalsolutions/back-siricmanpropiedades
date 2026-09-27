@@ -8,11 +8,9 @@ en GHCR (GitHub Container Registry); el servidor solo las descarga
 disco del VPS es limitado (30 GB) y compilar en el servidor dejaría capas y
 caché de build ocupando espacio.
 
-> Nota sobre el archivo de variables: en este runbook lo llamamos
-> `.env.production.example`. Si en tu checkout aparece como
-> `env.production.example` (sin el punto inicial), es el mismo contenido;
-> renombralo a `.env.production.example` antes de usarlo como referencia, o
-> directamente a `.env` en el paso 2.
+> El ejemplo de variables se llama `env.production.example` (sin punto
+> inicial, para no confundirlo con un `.env` real). En el servidor se copia
+> como `.env`.
 
 ## 1. Una sola vez: preparar las imágenes en GitHub
 
@@ -52,8 +50,14 @@ scp -P 5941 deploy/compose.yml deploy/Caddyfile siricman:~/siricman/
 ```
 
 Creá el archivo de variables reales a partir del ejemplo (podés copiar el
-contenido de `.env.production.example` con el mismo `scp`, o pegarlo a
-mano con un editor como `nano`):
+contenido de `env.production.example` con `scp` directamente como `.env`, o
+pegarlo a mano con un editor como `nano`):
+
+```bash
+scp -P 5941 deploy/env.production.example siricman:~/siricman/.env
+```
+
+O bien, a mano:
 
 ```bash
 cd ~/siricman
