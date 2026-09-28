@@ -6,7 +6,12 @@ import { Property } from '../entities/property.entity';
 import { Neighborhood } from '../../neighborhoods/entities/neighborhood.entity';
 import { AuditLogService } from '../../audit/audit-log.service';
 import { AuditAction } from '../../audit/enums/audit-action.enum';
-import { Currency, Operation, PropertyType } from '../enums/property.enums';
+import {
+  Currency,
+  Operation,
+  PropertyType,
+  PublicationStatus,
+} from '../enums/property.enums';
 
 const CREATE_DTO = {
   operation: Operation.SALE,
@@ -36,6 +41,7 @@ describe('PropertiesService', () => {
       create: jest.fn((data) => data),
       save: jest.fn(async (p) => ({ id: 'property-1', ...p })),
       findOne: jest.fn(),
+      createQueryBuilder: jest.fn(),
     };
 
     neighborhoodRepository = {
@@ -265,6 +271,88 @@ describe('PropertiesService', () => {
       await expect(service.findOne('missing-id')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('findAll', () => {
+    function chainableQueryBuilder(rows: unknown[], total: number) {
+      const queryBuilder: Record<string, jest.Mock> = {};
+      const chainable = [
+        'innerJoinAndSelect',
+        'andWhere',
+        'orderBy',
+        'addOrderBy',
+        'take',
+        'skip',
+      ];
+      for (const method of chainable) {
+        queryBuilder[method] = jest.fn(() => queryBuilder);
+      }
+      queryBuilder.getManyAndCount = jest.fn(async () => [rows, total]);
+      return queryBuilder;
+    }
+
+    it('joins the neighborhood, applies every where clause and the order/take/skip from the spec, and returns { items, total }', async () => {
+      const rows = [{ id: 'property-1' }, { id: 'property-2' }];
+      const queryBuilder = chainableQueryBuilder(rows, 2);
+      propertyRepository.createQueryBuilder.mockReturnValue(queryBuilder);
+
+      const result = await service.findAll({
+        publicationStatus: PublicationStatus.DRAFT,
+      });
+
+      expect(propertyRepository.createQueryBuilder).toHaveBeenCalledWith(
+        'property',
+      );
+      expect(queryBuilder.innerJoinAndSelect).toHaveBeenCalledWith(
+        'property.neighborhood',
+        'neighborhood',
+      );
+      expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+        'property.publicationStatus = :publicationStatus',
+        { publicationStatus: PublicationStatus.DRAFT },
+      );
+      expect(queryBuilder.orderBy).toHaveBeenCalledWith(
+        'property.createdAt',
+        'DESC',
+      );
+      expect(queryBuilder.addOrderBy).toHaveBeenCalledWith(
+        'property.id',
+        'DESC',
+      );
+      expect(queryBuilder.take).toHaveBeenCalledWith(20);
+      expect(queryBuilder.skip).toHaveBeenCalledWith(0);
+      expect(result).toEqual({ items: rows, total: 2 });
+    });
+
+    it('returns properties of every publication status when no filter is given', async () => {
+      const rows = [
+        { id: 'property-1', publicationStatus: PublicationStatus.DRAFT },
+        { id: 'property-2', publicationStatus: PublicationStatus.PUBLISHED },
+        { id: 'property-3', publicationStatus: PublicationStatus.ARCHIVED },
+      ];
+      const queryBuilder = chainableQueryBuilder(rows, 3);
+      propertyRepository.createQueryBuilder.mockReturnValue(queryBuilder);
+
+      const result = await service.findAll({});
+
+      expect(queryBuilder.andWhere).not.toHaveBeenCalled();
+      expect(result).toEqual({ items: rows, total: 3 });
+    });
+
+    it('applies no where clause beyond the requested publicationStatus when filtering', async () => {
+      const rows = [
+        { id: 'property-1', publicationStatus: PublicationStatus.DRAFT },
+      ];
+      const queryBuilder = chainableQueryBuilder(rows, 1);
+      propertyRepository.createQueryBuilder.mockReturnValue(queryBuilder);
+
+      const result = await service.findAll({
+        publicationStatus: PublicationStatus.DRAFT,
+      });
+
+      expect(queryBuilder.andWhere).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ items: rows, total: 1 });
     });
   });
 });

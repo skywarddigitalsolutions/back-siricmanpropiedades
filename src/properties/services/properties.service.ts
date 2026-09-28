@@ -7,15 +7,25 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Property } from '../entities/property.entity';
 import { Neighborhood } from '../../neighborhoods/entities/neighborhood.entity';
-import { CreatePropertyDto, UpdatePropertyDto } from '../dto';
+import {
+  AdminPropertyFiltersDto,
+  CreatePropertyDto,
+  UpdatePropertyDto,
+} from '../dto';
 import {
   buildPropertySlug,
   formatPropertyCode,
 } from '../helpers/property-identifiers';
+import {
+  buildAdminPropertyQuery,
+  NEIGHBORHOOD_ALIAS,
+  PROPERTY_ALIAS,
+} from '../helpers/property-query.builder';
 import { PublicationStatus, DealStatus } from '../enums/property.enums';
 import { AuditLogService } from '../../audit/audit-log.service';
 import { AuditAction } from '../../audit/enums/audit-action.enum';
 import { AuditActor } from '../../audit/interfaces/audit-actor.interface';
+import { Paginated } from '../../common/interfaces/paginated.interface';
 
 /**
  * `CreatePropertyDto` keys that `update()` diffs and applies generically.
@@ -203,5 +213,35 @@ export class PropertiesService {
     });
     if (!property) throw new NotFoundException('Property not found');
     return property;
+  }
+
+  /**
+   * Lists properties for `GET /api/admin/properties` across every
+   * `publicationStatus`, applying the `PropertyQuerySpec` produced by
+   * `buildAdminPropertyQuery`. No status is forced (unlike the public
+   * catalog): admins see every status unless they filter to one.
+   */
+  async findAll(
+    filters: AdminPropertyFiltersDto,
+  ): Promise<Paginated<Property>> {
+    const spec = buildAdminPropertyQuery(filters);
+
+    const queryBuilder = this.propertyRepository
+      .createQueryBuilder(PROPERTY_ALIAS)
+      .innerJoinAndSelect(`${PROPERTY_ALIAS}.neighborhood`, NEIGHBORHOOD_ALIAS);
+
+    for (const clause of spec.where) {
+      queryBuilder.andWhere(clause.sql, clause.params);
+    }
+
+    spec.orderBy.forEach((order, index) => {
+      if (index === 0) queryBuilder.orderBy(order.column, order.direction);
+      else queryBuilder.addOrderBy(order.column, order.direction);
+    });
+
+    queryBuilder.take(spec.take).skip(spec.skip);
+
+    const [items, total] = await queryBuilder.getManyAndCount();
+    return { items, total };
   }
 }

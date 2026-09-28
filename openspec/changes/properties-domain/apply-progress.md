@@ -2,10 +2,13 @@
 
 ## Scope of this batch
 
-Phase 3a only (PR slice 3a: Admin Create/Update/Get), tasks 3a.1–3a.17.
-Phase 1 (Neighborhoods) and Phase 2 (Property Schema Foundation) were
-completed and merged in prior batches (see below). Phases 3b–5b are NOT
-started.
+Phase 3b only (PR slice 3b: Admin Filters and List), tasks 3b.1–3b.7.
+Phase 1 (Neighborhoods), Phase 2 (Property Schema Foundation), and Phase 3a
+(Admin Create/Update/Get) were completed in prior batches (see below); Phase
+3a's branch/PR (`feat/properties-3a-admin-crud`, PR #6) was open but not
+yet merged when this batch started — this batch stacks on top of it per the
+`stacked-to-main` chain strategy, on branch `feat/properties-3b-admin-list`.
+Phases 4–5b are NOT started.
 
 ## Mode
 
@@ -19,6 +22,16 @@ This apply batch adds one implementation commit (`ec05f7d` —
 "feat(properties): add admin create/update/get for properties") on top; the
 docs commit for `tasks.md`/`apply-progress.md` follows separately, same
 pattern as Phase 2. No push, no PR, no branch switch performed.
+
+**Phase 3b branch/commit state**: `feat/properties-3b-admin-list`, stacked
+on `feat/properties-3a-admin-crud` (PR #6, open, not yet merged), per
+`stacked-to-main`. Starting point: tip of `feat/properties-3a-admin-crud`
+at the time this batch started (commit `7e10eb9` — "docs(properties-domain):
+record neighborhoodId-on-update fix in apply progress"). This batch adds
+implementation commit `269bbf4` — "feat(properties): add admin filters and
+list endpoint"; the docs commit for `tasks.md`/`apply-progress.md` follows
+separately, same pattern as prior batches. No push, no PR, no branch switch
+performed.
 
 ## Prior batches (for reference)
 
@@ -248,13 +261,77 @@ All 3 new tests + the 9 pre-existing `PropertiesService` tests re-run green toge
 ### Commit
 `fix(properties): apply neighborhood changes on update` (implementation + spec/design docs in one commit; task-tracking commit for `apply-progress.md` follows separately, same pattern as prior batches). See exact hash and updated `git diff --stat main...HEAD -- . ':!openspec'` totals reported by the executor alongside this artifact.
 
+## Completed Tasks — Phase 3b (7/7)
+
+- [x] 3b.1 GREEN `src/properties/dto/admin-property-filters.dto.ts` (+ `dto/index.ts` export)
+- [x] 3b.2 RED `src/properties/helpers/property-query.builder.spec.ts` (`buildAdminPropertyQuery`)
+- [x] 3b.3 GREEN `src/properties/helpers/property-query.builder.ts` (`WhereClause`/`OrderClause`/`PropertyQuerySpec`, `PROPERTY_ALIAS`/`NEIGHBORHOOD_ALIAS`, `buildAdminPropertyQuery`)
+- [x] 3b.4 RED extend `properties.service.spec.ts` (`findAll`)
+- [x] 3b.5 GREEN `PropertiesService.findAll()`
+- [x] 3b.6 GREEN `GET /` route on `AdminPropertiesController`
+- [x] 3b.7 Verify slice — all four gates green (see Verification Evidence below)
+
+## TDD Cycle Evidence (Phase 3b)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 3b.1 | N/A — purely declarative query-param DTO (decorator list mirrors `design.md`'s DTO contract 1:1, no branching logic); its behavior is exercised indirectly by 3b.2/3b.4's tests against the query builder and service | N/A | N/A | N/A | N/A | Triangulation skipped: single possible output, no branching/logic (matches the precedent set for `Paginated<T>` in Phase 3a) | N/A |
+| 3b.2/3b.3 | `src/properties/helpers/property-query.builder.spec.ts` | Unit (pure) | N/A (new) | ✅ Written first — failed with `TS2307: Cannot find module './property-query.builder'` (confirmed by running `npm test -- src/properties/helpers/property-query.builder` before creating the implementation file) | ✅ 11/11 passed after implementing `buildAdminPropertyQuery` | ✅ 11 cases: no-clause baseline, one case per equality filter (`publicationStatus`, `dealStatus`, `operation`, `type`, `neighborhoodId`) with unique param names, all-filters-combined uniqueness check, `q` `%`-wrapping + `%`/`_` escaping, default order, default `take`/`skip`, explicit `take`/`skip` from `limit`/`offset` | ➖ None needed — single-pass declarative clause list, no branching to simplify |
+| 3b.4/3b.5 | extend `properties.service.spec.ts` (`findAll`) | Unit (mocked repository + chainable query-builder mock) | ✅ 12/12 (`create`+`update`+`findOne`) re-run green before extending | ✅ Written first — failed with `TS2339: Property 'findAll' does not exist on type 'PropertiesService'` (confirmed via `npm test -- src/properties/services/properties.service` before implementing) | ✅ 3/3 new tests passed after implementing `findAll()` | ✅ 3 cases: full clause/order/take/skip application with `{ items, total }` shape (also proves "Admin filters the list by publication status" — the DRAFT filter produces exactly one `andWhere` call), no-filter case returning rows of all three publication statuses (proves "Admin lists properties of every publication status"), and a single-filter case asserting no extra `andWhere` calls beyond the one requested | ➖ None needed — `findAll()` is a direct, linear application of the spec returned by `buildAdminPropertyQuery` |
+| 3b.6 | N/A — route wiring only, no new branching logic (delegates directly to the already-tested `findAll()`) | N/A | N/A | N/A | N/A | Triangulation skipped: single possible output, no branching/logic (matches the precedent set for `create`/`findOne`/`update` route wiring in Phase 3a, whose HTTP-level behavior is proven by class-level guard-metadata tests, not per-route unit tests) | N/A |
+
+### Test Summary (Phase 3b)
+- **Total tests written this batch**: 14 (11 query-builder, 3 service `findAll`)
+- **Total tests passing**: 14/14 (batch), 186/186 (full suite after this batch)
+- **Layers used**: Unit only — no integration/e2e harness exists in this project (`openspec/config.yaml`: `integration: false`, `e2e: false`), matching the Suggested Work Units table's "N/A — unit-only" note for unit 3b. The service test uses a hand-built chainable query-builder mock (`andWhere`/`orderBy`/`addOrderBy`/`take`/`skip`/`innerJoinAndSelect` all returning `this`, `getManyAndCount` resolving `[rows, total]`), matching `design.md`'s Testing Strategy row for `PublicPropertiesService.findAll` (same mock shape, reused here one phase earlier for the admin path).
+- **Approval tests** (refactoring): None — no pre-existing behavior was changed; `create`/`update`/`findOne` and their 12 existing tests re-run unchanged and green throughout.
+- **Pure functions created**: 1 (`buildAdminPropertyQuery`), triangulated with 11 cases covering every filter, the `q` escaping rule, ordering, and defaults. `escapeLikePattern` is a private, un-exported helper inside the same pure function's module — not separately triangulated by name, but fully exercised by the `q` escaping test case (`'50%_off'` → `'%50\\%\\_off%'`).
+
+## Deviations from Design (Phase 3b)
+
+None — implementation matches `design.md`'s query-builder contract (`WhereClause`/`OrderClause`/`PropertyQuerySpec`, `PROPERTY_ALIAS`/`NEIGHBORHOOD_ALIAS`, `buildAdminPropertyQuery`'s equality/`q`/order/default rules) and `AdminPropertyFiltersDto`'s field list exactly. One implementation-level note: `AdminPropertyFiltersDto.limit`/`.offset` are declared without class-field default initializers (matching `CreatePropertyDto`'s existing convention of not assigning JS defaults on optional decorated fields); the `limit ?? 20` / `offset ?? 0` defaulting described by `design.md` and by task 3b.1's wording is applied inside `buildAdminPropertyQuery` (task 3b.3), which is the same division of responsibility `design.md`'s "Pure query builders returning a query spec" decision already assigns to the builder rather than the DTO.
+
+## Work Unit Evidence (Phase 3b)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `npm test -- src/properties/dto/admin-property-filters.dto src/properties/helpers/property-query.builder src/properties/services/properties.service` → **2 suites, 26 tests, all passed** (the `dto/admin-property-filters.dto` path matches no spec file — the DTO is purely declarative per the Deviations note above, so its `glob` produces zero additional suites; the other two paths cover the batch's actual test additions) |
+| Runtime harness command/scenario and exact result | **N/A** — unit-only (mocked repository + chainable query-builder mock via `getRepositoryToken`, no DB/HTTP harness in this project per `openspec/config.yaml`'s `integration: false`/`e2e: false`), as forecast in `tasks.md`'s Suggested Work Units table for unit 3b. No schema change in this slice. |
+| Rollback boundary | Revert commit `269bbf4`: drops `src/properties/dto/admin-property-filters.dto.ts`, `src/properties/helpers/property-query.builder.ts(+.spec)`, the `PropertiesService.findAll()` method and its imports, the `GET /` route on `AdminPropertiesController` and its imports, and the `admin-property-filters.dto` export line in `dto/index.ts`. Independent of Phase 3a's `create`/`update`/`findOne` routes and of Phase 4/5b work (not yet started). No migration/schema change in this slice, so no DB rollback is needed. |
+
+## Verification Evidence (Task 3b.7)
+
+| Command | Observed result |
+|---|---|
+| `npm test` | **PASS** — 21 test suites, 186 tests, 0 failed. Exit code 0. |
+| `npm run lint` | **PASS** — `eslint "src/**/*.ts" --fix`, exit code 0, no reported errors. Auto-fixed two redundant `as any` type assertions in the new `findAll` service tests (flagged by `@typescript-eslint/no-unnecessary-type-assertion` — the object literals were already structurally compatible with `AdminPropertyFiltersDto` since every field is optional); no other changes. |
+| `npx tsc -p tsconfig.build.json --noEmit` | **PASS** — no output, exit code 0. |
+| `npm run build` | **PASS** — `nest build`, no output, exit code 0. |
+
+## Files Changed (Phase 3b)
+
+| File | Action |
+|------|--------|
+| `src/properties/dto/admin-property-filters.dto.ts` | Created |
+| `src/properties/dto/index.ts` | Modified (additive export) |
+| `src/properties/helpers/property-query.builder.ts` (+ `.spec.ts`) | Created |
+| `src/properties/services/properties.service.ts` (+ extended `.spec.ts`) | Modified (adds `findAll()`) |
+| `src/properties/controllers/admin-properties.controller.ts` | Modified (adds `GET /` route) |
+
+## Review Budget (Phase 3b)
+
+`git diff --stat feat/properties-3a-admin-crud...HEAD -- . ':!openspec'` for this batch's implementation commit (`269bbf4`) against the tip of `feat/properties-3a-admin-crud`: **456 insertions(+), 3 deletions(-)** across 7 files (459 total authored changed lines).
+
+This is **above** `tasks.md`'s own forecast for this slice (~220-260 lines) and **above** the session's 400-line review budget, by 59 lines. No content was cut, compressed, or restyled to fit — per the apply skill's explicit instruction, the slice was implemented honestly and the overage is reported rather than iterated against. The main drivers: the 11-case `property-query.builder.spec.ts` (128 lines) and the 3-case `findAll` extension to `properties.service.spec.ts` (90 lines) both needed one assertion block per filter/behavior to triangulate the pure builder and the chainable-query-builder mock, and `admin-property-filters.dto.ts` (75 lines) carries 8 fields at 2-4 decorator lines each — the same per-field DTO-verbosity cost noted in Phase 3a. **Recommendation**: treat PR 3b as `size:exception` under the `ask-on-risk` delivery strategy, same as PR 3a — this slice is already the smallest cohesive unit for "admin filters and list" (splitting the filters DTO from the query builder it feeds, or the query builder from the `findAll()` that applies it, would leave an intermediate commit that doesn't compile or doesn't test its own behavior), and the orchestrator/user already accepted a 7-PR stacked chain with two individually-borderline slices (1, 3a) noted in `tasks.md` itself.
+
 ## Open Items Carried Forward
 
 - Task 1.5 (manual barrio-spelling review) — already signed off in a prior batch (2026-09-27); not re-verified this batch.
-- ~~`neighborhoodId` changes via `PATCH` were silently ignored~~ — **RESOLVED** in the follow-up batch above.
-- PR 3a's authored line count exceeds both `tasks.md`'s forecast and the 400-line review budget (now larger still after this follow-up fix) — flagged for a `size:exception` decision before/at review time; not re-splittable without breaking cohesion.
-- Phase 3b onward — NOT started.
+- ~~`neighborhoodId` changes via `PATCH` were silently ignored~~ — **RESOLVED** in the follow-up batch above (Phase 3a).
+- PR 3a's authored line count exceeds both `tasks.md`'s forecast and the 400-line review budget — flagged for a `size:exception` decision before/at review time; not re-splittable without breaking cohesion. PR 3a is still open (not merged) as of this batch.
+- PR 3b's authored line count (459) also exceeds both `tasks.md`'s forecast (~220-260) and the 400-line review budget — flagged for the same `size:exception` decision; see Review Budget above.
+- Phase 4 onward — NOT started.
 
 ## Next Step
 
-Phase 3a (tasks 3a.1–3a.17) is complete and verified (`npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build` all green), and the `neighborhoodId`-on-update gap flagged in Deviation 2 has been resolved in the same batch/branch (see "Follow-up: `neighborhoodId` on Update" above). Ready for the next `sdd-apply` batch to start Phase 3b (Admin Filters and List) once PR 3a is reviewed/merged (or explicitly continued) per the `stacked-to-main` chain strategy. Per this batch's explicit scope (Phase 3a ONLY), Phase 3b was NOT started.
+Phase 3b (tasks 3b.1–3b.7) is complete and verified (`npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build` all green: 21 suites, 186 tests). Ready for the next `sdd-apply` batch to start Phase 4 (Lifecycle, Deal Status, Hard Delete) once PR 3a and PR 3b are reviewed/merged (or explicitly continued) per the `stacked-to-main` chain strategy. Per this batch's explicit scope (Phase 3b ONLY), Phase 4 was NOT started. Both PR 3a and PR 3b carry a recommended `size:exception` (821 and 459 authored lines respectively) awaiting the maintainer's decision.
