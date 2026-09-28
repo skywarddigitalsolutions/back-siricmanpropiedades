@@ -183,6 +183,62 @@ describe('PropertiesService', () => {
       expect(result.code).toBe('SP-101');
       expect(propertyRepository.save).not.toHaveBeenCalled();
     });
+
+    it('applies a neighborhood change: looks up the new neighborhood, sets the relation, and records neighborhoodId in changedFields', async () => {
+      propertyRepository.findOne.mockResolvedValue(existingProperty());
+      neighborhoodRepository.findOne.mockResolvedValue({
+        id: 'neighborhood-2',
+        name: 'Belgrano',
+      });
+      const actor = { id: 'admin-1', userName: 'admin' };
+
+      const result = await service.update(
+        'property-1',
+        { neighborhoodId: 'neighborhood-2' },
+        actor,
+      );
+
+      expect(neighborhoodRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 'neighborhood-2' },
+      });
+      expect(result.neighborhood).toEqual({
+        id: 'neighborhood-2',
+        name: 'Belgrano',
+      });
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actor,
+          action: AuditAction.PROPERTY_UPDATED,
+          entityType: 'property',
+          entityId: 'property-1',
+          metadata: { code: 'SP-101', changedFields: ['neighborhoodId'] },
+        }),
+      );
+    });
+
+    it('rejects a neighborhood change to a nonexistent neighborhood, without saving or auditing', async () => {
+      propertyRepository.findOne.mockResolvedValue(existingProperty());
+      neighborhoodRepository.findOne.mockResolvedValue(undefined);
+
+      await expect(
+        service.update('property-1', {
+          neighborhoodId: 'missing-neighborhood',
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(propertyRepository.save).not.toHaveBeenCalled();
+      expect(auditLogService.record).not.toHaveBeenCalled();
+    });
+
+    it('treats submitting the current neighborhoodId as a no-op for that field (no lookup, no save, no audit)', async () => {
+      propertyRepository.findOne.mockResolvedValue(existingProperty());
+
+      await service.update('property-1', { neighborhoodId: 'neighborhood-1' });
+
+      expect(neighborhoodRepository.findOne).not.toHaveBeenCalled();
+      expect(propertyRepository.save).not.toHaveBeenCalled();
+      expect(auditLogService.record).not.toHaveBeenCalled();
+    });
   });
 
   describe('findOne', () => {

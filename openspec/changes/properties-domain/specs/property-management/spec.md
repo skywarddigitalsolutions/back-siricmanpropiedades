@@ -82,6 +82,8 @@ The system MUST allow callers with role `admin` or `manager` to create a new pro
 
 The system MUST allow callers with role `admin` or `manager` to update an existing property's editable fields, and MUST reject the same request from a `user` role or an unauthenticated caller. `code` MUST NOT be directly settable through the update request; `slug` MUST NOT be directly settable through the update request (it is only ever derived per the Property Identifiers requirement).
 
+An update request MAY change the property's neighborhood by submitting `neighborhoodId`, using the same rule as Property Creation: if the submitted `neighborhoodId` differs from the property's current neighborhood, the system MUST look it up and, if no neighborhood exists with that id, MUST reject the request with `400 Bad Request` without saving any change or recording an audit entry. If the submitted `neighborhoodId` matches the property's current neighborhood, it MUST be treated as unchanged (a no-op for that field).
+
 #### Scenario: Admin or manager updates a property
 
 - GIVEN a caller authenticated as `admin` or as `manager` and an existing property
@@ -101,6 +103,21 @@ The system MUST allow callers with role `admin` or `manager` to update an existi
 - GIVEN no property exists with id `00000000-0000-0000-0000-000000000000`
 - WHEN an admin submits an update request for that id
 - THEN the response is `404 Not Found`
+
+#### Scenario: Update changes the property's neighborhood to an existing one
+
+- GIVEN an existing property currently assigned to neighborhood "Palermo"
+- WHEN an admin submits an update request with `neighborhoodId` set to the id of an existing neighborhood "Belgrano"
+- THEN the response is `200 OK` with the property now assigned to "Belgrano"
+- AND an audit log entry is recorded with action `PROPERTY_UPDATED` whose metadata's `changedFields` includes `neighborhoodId`
+
+#### Scenario: Update rejects a change to a nonexistent neighborhood
+
+- GIVEN an existing property
+- WHEN an admin submits an update request with `neighborhoodId` set to an id that does not match any neighborhood
+- THEN the response is `400 Bad Request`
+- AND the property's neighborhood is not changed
+- AND no audit entry is recorded
 
 ### Requirement: Property Retrieval by Id (Admin)
 

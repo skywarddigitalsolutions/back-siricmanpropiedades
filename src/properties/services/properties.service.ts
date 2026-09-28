@@ -18,11 +18,12 @@ import { AuditAction } from '../../audit/enums/audit-action.enum';
 import { AuditActor } from '../../audit/interfaces/audit-actor.interface';
 
 /**
- * `CreatePropertyDto` keys that `update()` is allowed to apply. `code`,
- * `slug`, `publicationStatus`, `dealStatus`, `firstPublishedAt` are never in
- * the DTO type; `neighborhoodId` is intentionally excluded here too — the
- * neighborhood relation is not editable in this slice (see class doc on
- * `update()`).
+ * `CreatePropertyDto` keys that `update()` diffs and applies generically.
+ * `code`, `slug`, `publicationStatus`, `dealStatus`, `firstPublishedAt` are
+ * never in the DTO type. `neighborhoodId` is intentionally excluded from
+ * this generic list: it maps to a relation (`property.neighborhood`), not a
+ * scalar column, so it is resolved separately in `update()` using the same
+ * lookup-or-reject rule as `create()`.
  */
 const UPDATABLE_FIELDS = [
   'operation',
@@ -137,8 +138,12 @@ export class PropertiesService {
    * primer publish) a partir del `title`. Si el set de cambios queda vacío
    * no hace save ni audita (evita ruido de auditoría).
    *
-   * NOTA: el cambio de `neighborhoodId` no se aplica en este slice (no
-   * cubierto por las specs de la fase 3a); queda como deviation documentada.
+   * `neighborhoodId` se resuelve aparte con la misma regla que `create()`:
+   * si viene y difiere del barrio actual, se busca por id; si no existe,
+   * `BadRequestException('Neighborhood not found')` sin guardar ni auditar;
+   * si existe, se reasigna la relación y `'neighborhoodId'` entra en
+   * `changedFields`. Si coincide con el barrio actual, es un no-op para ese
+   * campo (ni siquiera se consulta el repositorio de barrios).
    */
   async update(
     id: string,
@@ -157,6 +162,19 @@ export class PropertiesService {
         propertyRecord[key] = value;
         changedFields.push(key);
       }
+    }
+
+    if (
+      updatePropertyDto.neighborhoodId !== undefined &&
+      updatePropertyDto.neighborhoodId !== property.neighborhood.id
+    ) {
+      const neighborhood = await this.neighborhoodRepository.findOne({
+        where: { id: updatePropertyDto.neighborhoodId },
+      });
+      if (!neighborhood)
+        throw new BadRequestException('Neighborhood not found');
+      property.neighborhood = neighborhood;
+      changedFields.push('neighborhoodId');
     }
 
     if (changedFields.length === 0) return property;
