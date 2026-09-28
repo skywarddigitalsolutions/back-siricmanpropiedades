@@ -172,7 +172,7 @@ None functionally — implementation matches `design.md`'s column table, index l
 ## Deviations from Design (Phase 3a)
 
 1. **TDD task-order deviation (procedural, not behavioral)**: `tasks.md` sequences 3a.5 (GREEN: create the DTO) before 3a.6 (RED: write the DTO spec) and 3a.7 (GREEN: adjust). Strict TDD's non-negotiable law is "no production code before a failing test," so the actual execution order was: write `create-property.dto.spec.ts` first (guaranteed RED — the DTO module didn't exist), then implement `create-property.dto.ts`/`update-property.dto.ts` once as the combined 3a.5+3a.7 GREEN. All three tasks (3a.5, 3a.6, 3a.7) are still fully delivered and checked off; only the *chronological* order of writing was inverted to honor strict TDD. Same reasoning applied narrowly to 3a.8 vs. the literal reading of "3a.8 RED... 3a.9 GREEN" (already the correct order) — no deviation there.
-2. **`neighborhoodId` is not an editable field in `update()`**: `design.md` lists `neighborhoodId` as part of `CreatePropertyDto`, and `UpdatePropertyDto = PartialType(CreatePropertyDto)` therefore types it as an optional update field, but **task 3a.10's enumerated test scenarios do not include a neighborhood-change scenario**, and `design.md`'s prose for `update()` only describes slug regeneration, the no-op case, and `changedFields` — it does not specify how a neighborhood change should be resolved (repository lookup, 400-if-missing, etc.). To avoid speculative untested behavior, `PropertiesService.update()` explicitly excludes `neighborhoodId` from the diffed/applied fields (see `UPDATABLE_FIELDS` and its doc comment). **This is a real gap**: submitting `neighborhoodId` in a `PATCH` request is currently silently ignored (not rejected — the DTO still accepts it since it's inherited from `CreatePropertyDto` via `PartialType`, but the service drops it). Flagged as an open item below for a follow-up task (either Phase 3b/4 or a dedicated task) to decide and implement the intended behavior.
+2. **`neighborhoodId` is not an editable field in `update()`** — **RESOLVED in the follow-up batch below** (see "Follow-up: `neighborhoodId` on Update"). Originally: `design.md` listed `neighborhoodId` as part of `CreatePropertyDto`, and `UpdatePropertyDto = PartialType(CreatePropertyDto)` therefore typed it as an optional update field, but task 3a.10's enumerated test scenarios did not include a neighborhood-change scenario, and `design.md`'s prose for `update()` only described slug regeneration, the no-op case, and `changedFields` — it did not specify how a neighborhood change should be resolved. `PropertiesService.update()` originally excluded `neighborhoodId` from the diffed/applied fields entirely, so it was silently ignored on `PATCH`. Now implemented using the same lookup-or-reject rule as `create()`.
 3. **Everything else matches `design.md` exactly**: sequence reservation via `propertyRepository.query('SELECT nextval(...)')`, code format (`SP-<n>`), slug derivation and freeze rule, `changedFields`-based audit metadata, `NotFoundException('Property not found')` message, class-level `@Auth(admin, manager)` guard boundary (method-level `@RoleProtected(admin)` for `DELETE` is Phase 4, not this slice).
 
 ## Work Unit Evidence (Phase 3a)
@@ -212,13 +212,49 @@ None functionally — implementation matches `design.md`'s column table, index l
 
 This is **above** `tasks.md`'s own forecast for this slice (~400-450 lines) and above the session's 400-line review budget. No content was cut, compressed, or restyled to fit — per the apply skill's explicit instruction, the slice was implemented honestly and the overage is reported rather than iterated against. The main drivers: `create-property.dto.ts` (168 lines) has ~25 fields each needing 2-4 lines of decorators (an inherent DTO-verbosity cost, not incidental), and full TDD coverage across 4 new production files added 336 lines of test code (214 service + 82 DTO + 29 identifiers + 11 controller). **Recommendation**: treat PR 3a as `size:exception` under the `ask-on-risk` delivery strategy — the slice is already the smallest cohesive unit for "admin create/update/get" (splitting `create`/`update`/`findOne` further would break the single-controller, single-service cohesion the design calls for), and the orchestrator/user already accepted a 7-PR stacked chain for this change.
 
+## Follow-up: `neighborhoodId` on Update (same batch/branch, after initial Phase 3a handoff)
+
+Resolves the "real gap" flagged in Deviation 2 above, per explicit orchestrator follow-up instruction. Same branch (`feat/properties-3a-admin-crud`), same rules (Strict TDD, no push/PR/branch switch, no AI attribution).
+
+**Rule implemented** (identical to `create()`'s neighborhood-lookup rule): when `UpdatePropertyDto.neighborhoodId` is present and differs from the property's current neighborhood id, `PropertiesService.update()` looks it up via `neighborhoodRepository.findOne({ where: { id } })`; if not found, throws `BadRequestException('Neighborhood not found')` with no save and no audit; if found, reassigns `property.neighborhood` and includes `'neighborhoodId'` in the audited `changedFields`. If the submitted `neighborhoodId` equals the current neighborhood's id, it is a no-op for that field — no repository lookup is made at all.
+
+### RED → GREEN evidence
+
+| Test | RED | GREEN |
+|---|---|---|
+| "applies a neighborhood change: looks up the new neighborhood, sets the relation, and records neighborhoodId in changedFields" | ✅ Failed — `neighborhoodRepository.findOne` never called (0 calls), because `neighborhoodId` was previously ignored entirely | ✅ Passed after adding the lookup-and-reassign branch |
+| "rejects a neighborhood change to a nonexistent neighborhood, without saving or auditing" | ✅ Failed — `rejects.toThrow()` saw a resolved promise instead (previously a silent no-op, since `neighborhoodId` wasn't diffed) | ✅ Passed — `BadRequestException` thrown, `save`/`record` not called |
+| "treats submitting the current neighborhoodId as a no-op for that field (no lookup, no save, no audit)" | ➖ Already passed before the fix (the old code ignored `neighborhoodId` unconditionally, so this specific assertion set held trivially); kept as regression-safety triangulation alongside the two RED cases above, per strict-tdd guidance that a test-extension batch's overall RED state is what gates the cycle, not every single assertion in isolation | ✅ Still passes post-fix — the new same-value branch also produces zero lookup calls |
+
+All 3 new tests + the 9 pre-existing `PropertiesService` tests re-run green together (12/12) after the implementation.
+
+### Test Summary (follow-up)
+- Tests added: 3 (`update` → neighborhood change, missing neighborhood, same-value no-op)
+- Full suite after this fix: **172/172 passing**, 20 suites (up from 169/20)
+
+### Documentation updated
+- `specs/property-management/spec.md` → **Property Update** requirement: added a paragraph on `neighborhoodId` update semantics, plus two new scenarios ("Update changes the property's neighborhood to an existing one", "Update rejects a change to a nonexistent neighborhood").
+- `design.md` → **Decision: Update semantics**: added the `neighborhoodId` resolution rule (separate from the generic scalar-field diff, same lookup-or-reject as `create()`) to the Choice and Rationale.
+- `UPDATABLE_FIELDS`'s doc comment in `properties.service.ts` updated to explain `neighborhoodId` is handled by a dedicated branch (relation, not a scalar column) rather than "not editable".
+
+### Verification (foreground, observed)
+| Command | Observed result |
+|---|---|
+| `npm test` | **PASS** — 20 test suites, 172 tests, 0 failed. Exit code 0. |
+| `npm run lint` | **PASS** — `eslint "src/**/*.ts" --fix`, exit code 0, no errors, no output. |
+| `npx tsc -p tsconfig.build.json --noEmit` | **PASS** — no output, exit code 0. |
+| `npm run build` | **PASS** — `nest build`, no output, exit code 0. |
+
+### Commit
+`fix(properties): apply neighborhood changes on update` (implementation + spec/design docs in one commit; task-tracking commit for `apply-progress.md` follows separately, same pattern as prior batches). See exact hash and updated `git diff --stat main...HEAD -- . ':!openspec'` totals reported by the executor alongside this artifact.
+
 ## Open Items Carried Forward
 
 - Task 1.5 (manual barrio-spelling review) — already signed off in a prior batch (2026-09-27); not re-verified this batch.
-- **New**: `neighborhoodId` changes via `PATCH /api/admin/properties/:id` are silently ignored by `PropertiesService.update()` (see Deviation 2 above) — needs an explicit product/design decision (allow with a neighborhood-existence check, or explicitly reject with 400) before it's implemented, likely as a Phase 3b/4 follow-up or a small dedicated task.
-- **New**: PR 3a's authored line count (827) exceeds both `tasks.md`'s forecast and the 400-line review budget — flagged above for a `size:exception` decision before/at review time; not re-splittable without breaking cohesion.
+- ~~`neighborhoodId` changes via `PATCH` were silently ignored~~ — **RESOLVED** in the follow-up batch above.
+- PR 3a's authored line count exceeds both `tasks.md`'s forecast and the 400-line review budget (now larger still after this follow-up fix) — flagged for a `size:exception` decision before/at review time; not re-splittable without breaking cohesion.
 - Phase 3b onward — NOT started.
 
 ## Next Step
 
-Phase 3a (tasks 3a.1–3a.17) is complete and verified (`npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build` all green). Ready for the next `sdd-apply` batch to start Phase 3b (Admin Filters and List) once PR 3a is reviewed/merged (or explicitly continued) per the `stacked-to-main` chain strategy. Per this batch's explicit scope (Phase 3a ONLY), Phase 3b was NOT started.
+Phase 3a (tasks 3a.1–3a.17) is complete and verified (`npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build` all green), and the `neighborhoodId`-on-update gap flagged in Deviation 2 has been resolved in the same batch/branch (see "Follow-up: `neighborhoodId` on Update" above). Ready for the next `sdd-apply` batch to start Phase 3b (Admin Filters and List) once PR 3a is reviewed/merged (or explicitly continued) per the `stacked-to-main` chain strategy. Per this batch's explicit scope (Phase 3a ONLY), Phase 3b was NOT started.
