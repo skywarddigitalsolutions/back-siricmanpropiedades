@@ -115,8 +115,8 @@ Every other combination (including same-state, e.g. `draft -> draft` via `unpubl
 
 ### Decision: Update semantics
 
-**Choice**: `UpdatePropertyDto = PartialType(CreatePropertyDto)` (`@nestjs/swagger`). `code`, `slug`, `publicationStatus`, `dealStatus`, `firstPublishedAt` are not in any write DTO, so `forbidNonWhitelisted` rejects them with 400. The service computes `changedFields`; if empty, it returns the property without saving or auditing. Otherwise it saves and records `PROPERTY_UPDATED` `{ code, changedFields }`. Published properties remain editable (only the slug is frozen).
-**Rationale**: status changes only through audited verbs; no noise audit entries.
+**Choice**: `UpdatePropertyDto = PartialType(CreatePropertyDto)` (`@nestjs/swagger`). `code`, `slug`, `publicationStatus`, `dealStatus`, `firstPublishedAt` are not in any write DTO, so `forbidNonWhitelisted` rejects them with 400. The service computes `changedFields`; if empty, it returns the property without saving or auditing. Otherwise it saves and records `PROPERTY_UPDATED` `{ code, changedFields }`. Published properties remain editable (only the slug is frozen). `neighborhoodId` is resolved separately from the generic scalar-field diff (it maps to the `neighborhood` relation, not a column): if submitted and different from the property's current neighborhood, it is looked up with the same rule as `create()` (`neighborhoodRepository.findOne`; missing → `BadRequestException('Neighborhood not found')`, no save, no audit); if it matches the current neighborhood, it is a no-op for that field (no lookup). A successful change adds `'neighborhoodId'` to `changedFields`.
+**Rationale**: status changes only through audited verbs; no noise audit entries. `neighborhoodId` reuses `create()`'s exact validation rule (same error message, same "not found" semantics) instead of introducing a second way to fail on a missing neighborhood.
 
 ## Data Flow
 

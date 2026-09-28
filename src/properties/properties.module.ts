@@ -4,21 +4,25 @@ import { Property } from './entities/property.entity';
 import { AuthModule } from '../auth/auth.module';
 import { AuditModule } from '../audit/audit.module';
 import { NeighborhoodsModule } from '../neighborhoods/neighborhoods.module';
+import { PropertiesService } from './services/properties.service';
+import { AdminPropertiesController } from './controllers/admin-properties.controller';
 
 /**
- * Skeleton registered now so the entity/migration land together with the
- * schema (Phase 2). Controllers and providers are wired incrementally in
- * Phases 3a (admin create/update/get), 3b (admin list), 4 (lifecycle), and
- * 5b (public read surface).
+ * Admin create/update/get wired in Phase 3a. Admin list (3b), lifecycle
+ * verbs + deal status + hard delete (4), and the public read surface (5b)
+ * are wired incrementally on top of this module.
  */
 @Module({
   imports: [
     TypeOrmModule.forFeature([Property]),
+    // NeighborhoodsModule exports TypeOrmModule (which re-exports the
+    // Neighborhood repository provider), so PropertiesService can
+    // @InjectRepository(Neighborhood) without registering it again here.
     NeighborhoodsModule,
     AuthModule,
     AuditModule,
   ],
-  controllers: [],
-  providers: [],
+  controllers: [AdminPropertiesController],
+  providers: [PropertiesService],
 })
 export class PropertiesModule {}
