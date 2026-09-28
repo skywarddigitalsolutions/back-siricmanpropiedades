@@ -1,0 +1,197 @@
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
+import { numericTransformer } from '../../common/transformers/numeric.transformer';
+import { Neighborhood } from '../../neighborhoods/entities/neighborhood.entity';
+import {
+  Currency,
+  DealStatus,
+  MarketingTag,
+  Operation,
+  PropertyType,
+  PublicationStatus,
+} from '../enums/property.enums';
+
+@Entity({ name: 'properties' })
+export class Property {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'varchar', length: 20, unique: true, update: false })
+  code: string;
+
+  @Column({ type: 'varchar', length: 120, unique: true })
+  slug: string;
+
+  @Column({
+    type: 'enum',
+    enum: Operation,
+    enumName: 'property_operation_enum',
+  })
+  operation: Operation;
+
+  @Column({
+    type: 'enum',
+    enum: PropertyType,
+    enumName: 'property_type_enum',
+  })
+  type: PropertyType;
+
+  @Column({ type: 'varchar', length: 150 })
+  title: string;
+
+  @Column({ type: 'text', nullable: true })
+  description: string | null;
+
+  @ManyToOne(() => Neighborhood, { nullable: false })
+  @JoinColumn({ name: 'neighborhood_id' })
+  neighborhood: Neighborhood;
+
+  @Column({ type: 'varchar', length: 200 })
+  address: string;
+
+  @Column({ name: 'show_exact_address', type: 'boolean', default: false })
+  showExactAddress: boolean;
+
+  @Column({
+    type: 'enum',
+    enum: Currency,
+    enumName: 'property_currency_enum',
+  })
+  currency: Currency;
+
+  @Column({
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    transformer: numericTransformer,
+  })
+  price: number;
+
+  @Column({
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+    transformer: numericTransformer,
+  })
+  expenses: number | null;
+
+  @Column({ type: 'smallint' })
+  rooms: number;
+
+  @Column({ type: 'smallint' })
+  bedrooms: number;
+
+  @Column({ type: 'smallint' })
+  bathrooms: number;
+
+  @Column({ name: 'has_garage', type: 'boolean', default: false })
+  hasGarage: boolean;
+
+  @Column({
+    name: 'covered_area',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    transformer: numericTransformer,
+  })
+  coveredArea: number;
+
+  @Column({
+    name: 'total_area',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    transformer: numericTransformer,
+  })
+  totalArea: number;
+
+  @Column({ type: 'smallint' })
+  age: number;
+
+  @Column({ name: 'credit_eligible', type: 'boolean', default: false })
+  creditEligible: boolean;
+
+  @Column({ name: 'pets_allowed', type: 'boolean', default: false })
+  petsAllowed: boolean;
+
+  @Column({
+    name: 'immediate_availability',
+    type: 'boolean',
+    default: false,
+  })
+  immediateAvailability: boolean;
+
+  @Column({
+    name: 'marketing_tag',
+    type: 'enum',
+    enum: MarketingTag,
+    enumName: 'property_marketing_tag_enum',
+    default: MarketingTag.NONE,
+  })
+  marketingTag: MarketingTag;
+
+  @Column({ type: 'boolean', default: false })
+  featured: boolean;
+
+  @Column({ name: 'has_water', type: 'boolean', default: false })
+  hasWater: boolean;
+
+  @Column({ name: 'has_natural_gas', type: 'boolean', default: false })
+  hasNaturalGas: boolean;
+
+  @Column({ name: 'has_sewer', type: 'boolean', default: false })
+  hasSewer: boolean;
+
+  @Column({ name: 'has_electricity', type: 'boolean', default: false })
+  hasElectricity: boolean;
+
+  @Column({ name: 'has_internet', type: 'boolean', default: false })
+  hasInternet: boolean;
+
+  @Column({
+    name: 'publication_status',
+    type: 'enum',
+    enum: PublicationStatus,
+    enumName: 'property_publication_status_enum',
+    default: PublicationStatus.DRAFT,
+  })
+  publicationStatus: PublicationStatus;
+
+  @Column({
+    name: 'deal_status',
+    type: 'enum',
+    enum: DealStatus,
+    enumName: 'property_deal_status_enum',
+    default: DealStatus.AVAILABLE,
+  })
+  dealStatus: DealStatus;
+
+  @Column({
+    name: 'first_published_at',
+    type: 'timestamp without time zone',
+    nullable: true,
+  })
+  firstPublishedAt: Date | null;
+
+  @CreateDateColumn({
+    name: 'created_at',
+    type: 'timestamp without time zone',
+    default: () => 'now()',
+  })
+  createdAt: Date;
+
+  @UpdateDateColumn({
+    name: 'updated_at',
+    type: 'timestamp without time zone',
+    default: () => 'now()',
+  })
+  updatedAt: Date;
+}
