@@ -2,14 +2,22 @@
 
 ## Scope of this batch
 
-Phase 4 only (PR slice 4: Lifecycle, Deal Status, Hard Delete), tasks
-4.1–4.16. Phase 1 (Neighborhoods), Phase 2 (Property Schema Foundation),
-Phase 3a (Admin Create/Update/Get), and Phase 3b (Admin Filters and List)
-were completed in prior batches (see below). PR 3a (`feat/properties-3a-admin-crud`,
-#6) and PR 3b (`feat/properties-3b-admin-list`, #7) were both open, not yet
-merged, when this batch started — this batch stacks on top of PR 3b's tip
-per the `stacked-to-main` chain strategy, on branch `feat/properties-4-lifecycle`.
-Phases 5a–5b are NOT started.
+Phase 5a only (PR slice 5a: Public Filters DTO and Query Builder), tasks
+5a.1–5a.7. Phase 1 (Neighborhoods), Phase 2 (Property Schema Foundation),
+Phase 3a (Admin Create/Update/Get), Phase 3b (Admin Filters and List), and
+Phase 4 (Lifecycle, Deal Status, Hard Delete) were completed in prior
+batches (see below). PR #8 (`feat/properties-4-lifecycle`) was open, not yet
+merged, when this batch started, stacked on PR #7 (`feat/properties-3b-admin-list`,
+also open) — this batch stacks on top of PR #8's tip per the
+`stacked-to-main` chain strategy, on branch `feat/properties-5a-public-filters`.
+Phase 5b is NOT started.
+
+**Previous "Scope of this batch" (Phase 4, for reference)**: Phase 4 only
+(PR slice 4: Lifecycle, Deal Status, Hard Delete), tasks 4.1–4.16. PR 3a
+(`feat/properties-3a-admin-crud`, #6) and PR 3b (`feat/properties-3b-admin-list`,
+#7) were both open, not yet merged, when that batch started — it stacked on
+top of PR 3b's tip per the `stacked-to-main` chain strategy, on branch
+`feat/properties-4-lifecycle`.
 
 ## Mode
 
@@ -41,6 +49,17 @@ of `feat/properties-3b-admin-list` at the time this batch started (commit
 `e121817` — "docs(properties-domain): mark phase 3b tasks complete, record
 apply progress"). This batch adds implementation commit `5f3c5d4` —
 "feat(properties): add lifecycle, deal status, and hard delete"; the docs
+commit for `tasks.md`/`apply-progress.md` follows separately, same pattern
+as prior batches. No push, no PR, no branch switch performed.
+
+**Phase 5a branch/commit state**: `feat/properties-5a-public-filters`,
+stacked on `feat/properties-4-lifecycle` (PR #8, open, not yet merged),
+which is itself stacked on `feat/properties-3b-admin-list` (PR #7, open,
+not yet merged), per `stacked-to-main`. Starting point: tip of
+`feat/properties-4-lifecycle` at the time this batch started (commit
+`7f82c58` — "docs(properties-domain): mark phase 4 tasks complete, record
+apply progress"). This batch adds implementation commit `d481474` —
+"feat(properties): add public filters DTO and query builder"; the docs
 commit for `tasks.md`/`apply-progress.md` follows separately, same pattern
 as prior batches. No push, no PR, no branch switch performed.
 
@@ -412,15 +431,78 @@ None — implementation matches `design.md`'s transition matrix table (Decision:
 
 This is **above** `tasks.md`'s own forecast for this slice (~380-420 lines) and **above** the session's 400-line review budget, by 247–287 lines relative to the forecast. No content was cut, compressed, or restyled to fit — per the apply skill's explicit instruction, the slice was implemented honestly and the overage is reported rather than iterated against. The main drivers: `admin-properties.controller.ts` (123 lines added) carries 5 new routes each with 5-8 lines of Swagger `@Api*` decorators (matching the existing per-route documentation density from Phase 3a/3b, not incidental bloat), and full TDD coverage across 5 new service methods added 275 lines to `properties.service.spec.ts` (12 new test cases, each needing its own fixture + assertion block to triangulate a distinct business rule: first-publish-vs-republish, 3 invalid-transition rejections, same-value rejection, ever-published rejection) plus 68 lines for the lifecycle helper's 9-case `it.each` matrix. **Recommendation**: treat PR 4 as `size:exception` under the `ask-on-risk` delivery strategy, consistent with PR 3a (821 lines) and PR 3b (459 lines) — this slice is already the smallest cohesive unit for "lifecycle + deal status + hard delete" per `tasks.md`'s own Suggested Work Units table (splitting the 3 lifecycle verbs from deal-status/delete would leave an intermediate commit exercising only part of the reconciled transition matrix), and the orchestrator/user already accepted a 7-PR stacked chain for this change with two other slices already carrying the same recommendation.
 
+## Completed Tasks — Phase 5a (7/7)
+
+- [x] 5a.1 RED `src/properties/dto/validators/price-filter.validators.spec.ts`
+- [x] 5a.2 GREEN `src/properties/dto/validators/price-filter.validators.ts` (`RequiresCurrency`, `IsGreaterThanOrEqualTo`)
+- [x] 5a.3 RED `src/properties/dto/public-property-filters.dto.spec.ts`
+- [x] 5a.4 GREEN `src/properties/dto/public-property-filters.dto.ts` (+ `dto/index.ts` export)
+- [x] 5a.5 RED extend `src/properties/helpers/property-query.builder.spec.ts` (public half, `buildPublicPropertyQuery`)
+- [x] 5a.6 GREEN `buildPublicPropertyQuery` in `src/properties/helpers/property-query.builder.ts` (same file as `buildAdminPropertyQuery`)
+- [x] 5a.7 Verify slice — all four gates green (see Verification Evidence below)
+
+## TDD Cycle Evidence (Phase 5a)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 5a.1/5a.2 | `src/properties/dto/validators/price-filter.validators.spec.ts` | Unit (custom class-validator decorators, no mocks) | N/A (new) | ✅ Written first — failed with `TS2307: Cannot find module './price-filter.validators'` (confirmed via `npm test -- src/properties/dto/validators/price-filter.validators` before creating the implementation file) | ✅ 9/9 passed after implementing `RequiresCurrency`/`IsGreaterThanOrEqualTo` | ✅ 9 cases: `RequiresCurrency` default predicate (fails without currency, passes with currency, passes when own value undefined), custom predicate for `sort` (fails only for `price_asc`, passes for `newest`, passes with currency present), `IsGreaterThanOrEqualTo` (less-than fails, equal passes, greater passes, either-undefined passes) | ➖ None needed — first use of `registerDecorator` in this codebase (no existing custom-decorator pattern to follow); kept both decorators generic (`isPriceRelated` predicate, `relatedPropertyName` string) rather than hardcoding `priceMin`/`priceMax`/`sort`, since `design.md` reuses `RequiresCurrency` across three different fields with different "is price-related" rules |
+| 5a.3/5a.4 | `src/properties/dto/public-property-filters.dto.spec.ts` | Unit (DTO validation + transformation) | N/A (new) | ✅ Written first — failed with `TS2307: Cannot find module './public-property-filters.dto'` (confirmed via `npm test -- src/properties/dto/public-property-filters.dto` before creating the implementation file) | ✅ 25/25 passed after implementing `PublicPropertyFiltersDto` | ✅ 25 cases: empty filter set, invalid `operation`/`type`/`sort` enum values, non-numeric `priceMin` with currency set, `priceMin` without currency, `sort=price_asc` without/with currency, boolean-toggle coercion for `hasGarage`/`creditEligible`/`petsAllowed` (`'true'`/`'false'` × 3 fields = 6 cases) plus a rejected non-literal value, numeric coercion for 7 fields (`minRooms`, `minBedrooms`, `minBathrooms`, `minCoveredArea`, `minTotalArea`, `limit`, `offset`), `priceMin`/`priceMax` coercion with currency, no-currency-required baseline, and `featured` rejected via the full `ValidationPipe` (whitelist + forbidNonWhitelisted) — proving the public `featured` filter is genuinely absent per the reconciliation note | ➖ None needed — declarative decorator list plus the reused `toQueryBoolean` transform, no branching logic to simplify |
+| 5a.5/5a.6 | extend `src/properties/helpers/property-query.builder.spec.ts` (`buildPublicPropertyQuery`) | Unit (pure) | ✅ 11/11 (`buildAdminPropertyQuery`) re-run green before extending | ✅ Written first — failed with `TS2724: '"./property-query.builder"' has no exported member named 'buildPublicPropertyQuery'` (confirmed via `npm test -- src/properties/helpers/property-query.builder` before implementing) | ✅ 27/27 new tests passed after implementing `buildPublicPropertyQuery` | ✅ 27 cases: forced `publicationStatus = published` always first (with and without other filters), one case per equality/`>=` filter (`operation`, `type`, `neighborhood.slug`, `minRooms`/`minBedrooms`/`minBathrooms`/`minCoveredArea`/`minTotalArea` via `it.each`, `hasGarage`/`creditEligible`/`petsAllowed` via `it.each`), omitted-filter-produces-no-clause, currency equality scoping with and without a price filter, `priceMin`/`priceMax` `>=`/`<=` clauses, all-filters-combined unique-param-name check, 4 `BadRequestException` cases (`priceMin` alone, `priceMax` alone, `sort=price_asc`/`price_desc` alone, `priceMax < priceMin`), no-throw for `sort=newest` without currency, 3 ordering cases (`newest` default, `price_asc`, `price_desc`), and default/explicit `take`/`skip` — the full scenario space from `tasks.md`'s 5a.5 description, not a subset | ➖ None needed — single-pass declarative clause list mirroring `buildAdminPropertyQuery`'s existing shape, no branching to simplify |
+
+### Test Summary (Phase 5a)
+- **Total tests written this batch**: 61 (9 validators, 25 DTO, 27 query-builder)
+- **Total tests passing**: 61/61 (batch), **269/269 (full suite after this batch, up from 208)**
+- **Layers used**: Unit only — no integration/e2e harness exists in this project (`openspec/config.yaml`: `integration: false`, `e2e: false`), matching the Suggested Work Units table's "N/A — unit-only" note for unit 5a. No route is wired yet (public controller/service are Phase 5b), so there is no HTTP-layer test in this slice.
+- **Approval tests** (refactoring): None — no pre-existing behavior was changed. `buildAdminPropertyQuery` and its 11 existing tests re-run unchanged and green throughout; `properties.dto/index.ts` was extended additively (two new export lines).
+- **Pure functions created**: 3 (`RequiresCurrency`, `IsGreaterThanOrEqualTo` as decorator factories; `buildPublicPropertyQuery` as the query-spec builder), all triangulated with their full scenario space per the TDD Cycle Evidence table above.
+
+## Deviations from Design (Phase 5a)
+
+None — implementation matches `design.md`'s DTO contract (`PublicPropertyFiltersDto` field list, `@RequiresCurrency`/`@IsGreaterThanOrEqualTo` placement, no `featured` field), the currency-rule decision (DTO-level `@RequiresCurrency`, re-asserted defensively in `buildPublicPropertyQuery`), and `buildPublicPropertyQuery`'s 7 numbered rules (forced `published` first, currency/range 400s, equality clauses, `>=` clauses, unique param names, ordering, `take`/`skip` defaults) exactly. One implementation-level note not specified by `design.md`: `RequiresCurrency`'s default predicate is `(value) => value !== undefined` (used for `priceMin`/`priceMax`) and a custom predicate `(value) => value === 'price_asc' || value === 'price_desc'` is passed explicitly for `sort` — `design.md`'s prose describes this behavior ("fails when the value is price-related... only fails for price sorts") without specifying the decorator's exact signature, so the predicate-parameter design was chosen to keep one implementation shared by both use sites rather than two near-duplicate decorators.
+
+## Work Unit Evidence (Phase 5a)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `npm test -- src/properties/dto/public-property-filters.dto src/properties/dto/validators/price-filter.validators src/properties/helpers/property-query.builder` → **3 suites, 61 tests, all passed** |
+| Runtime harness command/scenario and exact result | **N/A** — unit-only (pure functions and DTO validation, no repository/DB/HTTP harness in this project per `openspec/config.yaml`'s `integration: false`/`e2e: false`), as forecast in `tasks.md`'s Suggested Work Units table for unit 5a. No schema/migration change in this slice, and no route is wired yet (purely additive helpers/DTO, per the Rollback boundary note in `tasks.md`). |
+| Rollback boundary | Revert commit `d481474`: drops `src/properties/dto/public-property-filters.dto.ts(+.spec)`, `src/properties/dto/validators/price-filter.validators.ts(+.spec)`, and the two additive export lines in `src/properties/dto/index.ts`; also reverts the `buildPublicPropertyQuery` function, its supporting constants (`PUBLIC_DEFAULT_LIMIT`, `PUBLIC_DEFAULT_OFFSET`, `PRICE_SORTS`, `publicOrderBy`), and its new imports in `src/properties/helpers/property-query.builder.ts` back to the Phase 3b state (admin-only). `buildAdminPropertyQuery` and its 11 tests are untouched. No route/controller/service depends on this slice's exports yet (Phase 5b builds on top in the next batch). |
+
+## Verification Evidence (Task 5a.7)
+
+| Command | Observed result |
+|---|---|
+| `npm test` | **PASS** — 24 test suites, 269 tests, 0 failed. Exit code 0. |
+| `npm run lint` | **PASS** — `eslint "src/**/*.ts" --fix`, exit code 0, no reported errors, no output. Prettier auto-reformatted the three new/extended spec files' multi-line call formatting (line-wrapping only); re-ran `npm test` after the fix — still 24 suites, 269 tests, all green. |
+| `npx tsc -p tsconfig.build.json --noEmit` | **PASS** — no output, exit code 0. |
+| `npm run build` | **PASS** — `nest build`, no output, exit code 0. |
+
+## Files Changed (Phase 5a)
+
+| File | Action |
+|------|--------|
+| `src/properties/dto/validators/price-filter.validators.ts` (+ `.spec.ts`) | Created |
+| `src/properties/dto/public-property-filters.dto.ts` (+ `.spec.ts`) | Created |
+| `src/properties/dto/index.ts` | Modified (additive: `public-property-filters.dto`, `validators/price-filter.validators` exports) |
+| `src/properties/helpers/property-query.builder.ts` (+ extended `.spec.ts`) | Modified (adds `buildPublicPropertyQuery`, `publicOrderBy`, `PUBLIC_DEFAULT_LIMIT`/`PUBLIC_DEFAULT_OFFSET`/`PRICE_SORTS`) |
+
+## Review Budget (Phase 5a)
+
+`git diff --stat feat/properties-4-lifecycle...HEAD -- . ':!openspec'` for this batch's implementation commit (`d481474`) against the tip of `feat/properties-4-lifecycle`: **962 insertions(+), 0 deletions(-)** across 7 files (962 total authored changed lines).
+
+This is **above** `tasks.md`'s own forecast for this slice (~380-420 lines) and **above** the session's 400-line review budget, by 542–582 lines relative to the forecast — the largest overage of any slice so far in this change. No content was cut, compressed, or restyled to fit — per the apply skill's explicit instruction, the slice was implemented honestly and the overage is reported rather than iterated against. The main drivers: `public-property-filters.dto.ts` (172 lines) carries 17 fields, several needing 5-6 decorator/comment lines each (the custom `@RequiresCurrency`/`@IsGreaterThanOrEqualTo` decorators plus `@Type`/`@Transform` for query-string coercion, on top of the usual `@ApiPropertyOptional`/`@IsOptional`/validator lines); `property-query.builder.ts`'s public half (177 lines added) has 13 independently-testable filter branches versus the admin builder's 5; and full TDD coverage across 3 new/extended production surfaces added 535 lines of test code (143 DTO + 140 validators + 252 query-builder extension), each filter/rule needing its own assertion to triangulate per the exhaustive scenario list in task 5a.5's own wording. **Recommendation**: treat PR 5a as `size:exception` under the `ask-on-risk` delivery strategy, consistent with PR 3a (821 lines), PR 3b (459 lines), and PR 4 (667 lines) — this slice is already the smallest cohesive unit for "public filters DTO + query builder" per `tasks.md`'s own Suggested Work Units table (the DTO and the builder that consumes it cannot be split further without leaving an intermediate commit where one doesn't compile against the other), and the orchestrator/user already accepted a 7-PR stacked chain with three other slices already carrying the same recommendation.
+
 ## Open Items Carried Forward
 
 - Task 1.5 (manual barrio-spelling review) — already signed off in a prior batch (2026-09-27); not re-verified this batch.
 - ~~`neighborhoodId` changes via `PATCH` were silently ignored~~ — **RESOLVED** in the follow-up batch above (Phase 3a).
 - PR 3a's authored line count exceeds both `tasks.md`'s forecast and the 400-line review budget — flagged for a `size:exception` decision before/at review time; not re-splittable without breaking cohesion. Merge status as of this batch: unknown to the executor (session instructions state PR 3a is "already merged to main" as of Phase 4's start — see Scope of this batch above).
 - PR 3b's authored line count (459) also exceeds both `tasks.md`'s forecast (~220-260) and the 400-line review budget — flagged for the same `size:exception` decision; PR 3b was still open (not merged) as of this batch's start.
-- PR 4's authored line count (667) also exceeds both `tasks.md`'s forecast (~380-420) and the 400-line review budget — flagged for the same `size:exception` decision; see Review Budget above.
-- Phase 5a onward — NOT started.
+- PR 4's authored line count (667) also exceeds both `tasks.md`'s forecast (~380-420) and the 400-line review budget — flagged for the same `size:exception` decision; see Phase 4's Review Budget above.
+- PR 5a's authored line count (962) also exceeds both `tasks.md`'s forecast (~380-420) and the 400-line review budget, by the widest margin yet — flagged for the same `size:exception` decision; see Review Budget above.
+- Phase 5b — NOT started.
+- The public `featured` filter, throttling of public endpoints, and the `dealStatus`/`operation` coupling remain open product decisions (see `tasks.md`'s Open Questions Carried Forward), unchanged by this batch.
 
 ## Next Step
 
-Phase 4 (tasks 4.1–4.16) is complete and verified (`npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build` all green: 22 suites, 208 tests). Ready for the next `sdd-apply` batch to start Phase 5a (Public Filters DTO and Query Builder) once PR 3b and PR 4 are reviewed/merged (or explicitly continued) per the `stacked-to-main` chain strategy. Per this batch's explicit scope (Phase 4 ONLY), Phase 5a was NOT started. PR 3b and PR 4 both carry a recommended `size:exception` (459 and 667 authored lines respectively) awaiting the maintainer's decision, consistent with PR 3a's already-flagged overage.
+Phase 5a (tasks 5a.1–5a.7) is complete and verified (`npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build` all green: 24 suites, 269 tests). Ready for the next `sdd-apply` batch to start Phase 5b (Public Mapper, Service, Controller) — the final slice of this change — once PR 3b, PR 4, and PR 5a are reviewed/merged (or explicitly continued) per the `stacked-to-main` chain strategy. Per this batch's explicit scope (Phase 5a ONLY), Phase 5b was NOT started. PR 3b, PR 4, and PR 5a all carry a recommended `size:exception` (459, 667, and 962 authored lines respectively) awaiting the maintainer's decision, consistent with PR 3a's already-flagged overage.
