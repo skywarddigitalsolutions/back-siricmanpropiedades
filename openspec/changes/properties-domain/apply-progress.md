@@ -2,9 +2,10 @@
 
 ## Scope of this batch
 
-Phase 2 only (PR slice 2: Property Schema Foundation), tasks 2.1–2.9. Phase 1
-(Neighborhoods) was completed and merged in a prior batch (see below).
-Phases 3a–5b are NOT started.
+Phase 3a only (PR slice 3a: Admin Create/Update/Get), tasks 3a.1–3a.17.
+Phase 1 (Neighborhoods) and Phase 2 (Property Schema Foundation) were
+completed and merged in prior batches (see below). Phases 3b–5b are NOT
+started.
 
 ## Mode
 
@@ -12,11 +13,20 @@ Phases 3a–5b are NOT started.
 
 ## Branch / Commit State
 
-Branch: `feat/properties-2-schema` (from `main`, after PR 1/neighborhoods
-merged). Starting commit `ae5adeb` (pre-existing fix to `src/data-source.ts`
-so the TypeORM CLI resolves a single `DataSource` export). This apply batch
-adds one implementation commit (`b4dfe09`) on top. No push, no PR, no branch
-switch performed.
+Branch: `feat/properties-3a-admin-crud` (from `main`, after PR 1/neighborhoods
+and PR 2/property-schema merged). Starting commit `5b396d7` (merge of PR 2).
+This apply batch adds one implementation commit (`ec05f7d` —
+"feat(properties): add admin create/update/get for properties") on top; the
+docs commit for `tasks.md`/`apply-progress.md` follows separately, same
+pattern as Phase 2. No push, no PR, no branch switch performed.
+
+## Prior batches (for reference)
+
+Phase 1 was implemented on `feat/properties-1-neighborhoods` and merged via
+PR 1. Phase 2 was implemented on `feat/properties-2-schema` (starting commit
+`ae5adeb`, implementation commit `b4dfe09`) and merged via PR 2. Both
+branches no longer exist locally; this batch starts fresh from `main` per
+the orchestrator's session instructions.
 
 ## Completed Tasks — Phase 1 (16/17; 1.5 intentionally left open)
 
@@ -114,15 +124,101 @@ Executed against `siricman-migtest` (127.0.0.1:55432, db `migtest`, already had 
 | `src/properties/properties.module.ts` | Created |
 | `src/app.module.ts` | Modified (additive: `PropertiesModule` import + registration) |
 
-## Deviations from Design
+## Deviations from Design (Phase 2)
 
 None functionally — implementation matches `design.md`'s column table, index list, enum definitions, and migration shape exactly. See the noted narrower-scope deviation in Migration Evidence above (only the properties migration was reverted this session, per explicit orchestrator instruction; neighborhoods was left applied).
+
+## Completed Tasks — Phase 3a (17/17)
+
+- [x] 3a.1 RED `src/properties/helpers/property-identifiers.spec.ts`
+- [x] 3a.2 GREEN `src/properties/helpers/property-identifiers.ts`
+- [x] 3a.3 GREEN `src/common/interfaces/paginated.interface.ts`
+- [x] 3a.4 `AuditAction.PROPERTY_CREATED` / `PROPERTY_UPDATED` added (additive)
+- [x] 3a.5 GREEN `src/properties/dto/create-property.dto.ts`, `update-property.dto.ts`, `dto/index.ts`
+- [x] 3a.6 RED `src/properties/dto/create-property.dto.spec.ts`
+- [x] 3a.7 GREEN — DTO validators adjusted until 3a.6 passed (no adjustment needed beyond the initial implementation)
+- [x] 3a.8 RED `src/properties/services/properties.service.spec.ts` (`create`)
+- [x] 3a.9 GREEN `PropertiesService.create()`
+- [x] 3a.10 RED extend `properties.service.spec.ts` (`update`)
+- [x] 3a.11 GREEN `PropertiesService.update()`
+- [x] 3a.12 RED extend `properties.service.spec.ts` (`findOne`)
+- [x] 3a.13 GREEN `PropertiesService.findOne()` (+ REFACTOR: `update()` now calls `this.findOne(id)` instead of duplicating the fetch/404 logic)
+- [x] 3a.14 RED `src/properties/controllers/admin-properties.controller.spec.ts`
+- [x] 3a.15 GREEN `src/properties/controllers/admin-properties.controller.ts`
+- [x] 3a.16 GREEN `src/properties/properties.module.ts` wires `PropertiesService` + `AdminPropertiesController`
+- [x] 3a.17 Verify slice — all four gates green (see Verification Evidence below)
+
+## TDD Cycle Evidence (Phase 3a)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 3a.1/3a.2 | `src/properties/helpers/property-identifiers.spec.ts` | Unit (pure) | N/A (new) | ✅ Written — failed with `TS2307: Cannot find module './property-identifiers'` | ✅ 4/4 passed after implementing `formatPropertyCode`/`buildPropertySlug` | ✅ 2 cases per function (two sequence values for `formatPropertyCode`; normal-length and >80-char title for `buildPropertySlug`) | ➖ None needed — both functions are single-expression compositions of already-tested primitives (`slugify`) |
+| 3a.3 | N/A — purely structural (single interface declaration, no runtime logic) | N/A | N/A | N/A | N/A | Triangulation skipped: single possible output, no branching/logic | N/A |
+| 3a.4 | N/A — purely structural (two additive enum members) | N/A | N/A | N/A | N/A | Triangulation skipped: single possible output, no branching/logic | N/A |
+| 3a.5–3a.7 | `src/properties/dto/create-property.dto.spec.ts` | Unit (DTO validation) | N/A (new) | ✅ Written first — failed with `TS2307: Cannot find module './create-property.dto'` (test authored *before* the DTO, ahead of the literal 3a.5→3a.6 task order, to keep the "test before production code" law; the DTO/validators were then written once as the 3a.7 GREEN, no further adjustment needed) | ✅ 5/5 passed after implementing `CreatePropertyDto`/`UpdatePropertyDto` | ✅ 5 cases: invalid enum, missing required field, negative numeric field, fully valid payload, `code`/`slug`/`publicationStatus` rejected via full `ValidationPipe` (whitelist + forbidNonWhitelisted) | ➖ None needed — declarative decorator list, no branching logic to simplify |
+| 3a.8/3a.9 | `src/properties/services/properties.service.spec.ts` (`create`) | Unit (mocked repositories) | N/A (new) | ✅ Written — failed with `TS2307: Cannot find module './properties.service'` | ✅ 2/2 passed after implementing `create()` | ✅ 2 cases: successful creation (code/slug/status/audit) and missing-neighborhood rejection (no reserve/save/audit) | ➖ None needed at this step (see 3a.4 REFACTOR entry below for the lint-driven type-safety refactor) |
+| 3a.10/3a.11 | extend `properties.service.spec.ts` (`update`) | Unit (mocked repositories) | ✅ 2/2 (create tests) re-run green before extending | ✅ Written — failed with `TS2339: Property 'update' does not exist on type 'PropertiesService'` | ✅ 5/5 passed after implementing `update()` | ✅ 5 cases: slug regenerated pre-publish, slug frozen post-publish, no-op with no changes, save+audit with `changedFields`, `code`/`slug` DTO keys ignored | ➖ None needed beyond the 3a.13 extraction (below) |
+| 3a.12/3a.13 | extend `properties.service.spec.ts` (`findOne`) | Unit (mocked repositories) | ✅ 7/7 (create+update tests) re-run green before extending | ✅ Written — failed with `TS2339: Property 'findOne' does not exist on type 'PropertiesService'` | ✅ 2/2 passed after implementing `findOne()` | ✅ 2 cases: found (joined with neighborhood) and missing (`NotFoundException`) | ✅ `update()` refactored to call `this.findOne(id)` instead of its own inline fetch+404, removing duplication; full spec file (9/9) re-run green after the refactor |
+| 3a.14/3a.15 | `src/properties/controllers/admin-properties.controller.spec.ts` | Unit (class metadata) | N/A (new) | ✅ Written — failed with `TS2307: Cannot find module './admin-properties.controller'` | ✅ 1/1 passed after implementing the controller with class-level `@Auth(admin, manager)` | ➖ Single scenario — class-level role metadata has one expected value; the guard-boundary behavior itself (401/403 resolution) is existing, already-tested `AuthGuard`/`UserRoleGuard` infrastructure, matching the precedent set by `neighborhoods.controller.spec.ts` | ➖ None needed |
+| — | N/A — lint-driven type-safety refactor (not a new test) | N/A | N/A | N/A | N/A | N/A | ✅ `eslint --fix` flagged `no-unsafe-assignment`/`no-unsafe-member-access` on `propertyRepository.query(...)` (TypeORM's `query<T = any>` returns `any` when uninferred) and `no-unused-vars` on destructure-based field exclusion in `create()`/`update()`. Fixed by (a) passing an explicit generic `query<{ value: string }[]>(...)` instead of casting the awaited `any`, and (b) replacing destructure-and-discard with an explicit field allowlist (`UPDATABLE_FIELDS`) / explicit per-field object literal in `create()`. All 19 `src/properties/**` tests re-run green after each fix. |
+
+### Test Summary (Phase 3a)
+- **Total tests written this batch**: 19 (4 identifiers, 5 DTO, 9 service, 1 controller)
+- **Total tests passing**: 19/19 (batch), 169/169 (full suite after this batch)
+- **Layers used**: Unit only — no integration/e2e harness exists in this project (`openspec/config.yaml`: `integration: false`, `e2e: false`). Service tests use hand-mocked repositories via `getRepositoryToken`, matching `NeighborhoodsService.spec.ts`/`UsersService.spec.ts`. Controller test asserts `Reflect.getMetadata` class-level role metadata, matching `NeighborhoodsController.spec.ts`'s method-level pattern.
+- **Approval tests** (refactoring): None — `src/audit/enums/audit-action.enum.ts` and `src/properties/properties.module.ts` were modified additively (new enum members; empty `controllers`/`providers` arrays populated), not refactored; no pre-existing behavior changed, confirmed by the full-suite pass count for everything outside this batch's new files (150 pre-existing tests all still pass unchanged).
+- **Pure functions created**: 2 (`formatPropertyCode`, `buildPropertySlug`) — both triangulated with 2 cases each. No new pure functions in the service/controller layer (I/O-bound by nature); business logic that could be pure (the `update()` field-diffing loop) stays in the service because it needs the fetched entity, matching `UsersService`'s existing pattern (e.g. `activate`/`deactivate`) rather than the query-builder pure-helper pattern reserved for Phase 3b/5a.
+
+## Deviations from Design (Phase 3a)
+
+1. **TDD task-order deviation (procedural, not behavioral)**: `tasks.md` sequences 3a.5 (GREEN: create the DTO) before 3a.6 (RED: write the DTO spec) and 3a.7 (GREEN: adjust). Strict TDD's non-negotiable law is "no production code before a failing test," so the actual execution order was: write `create-property.dto.spec.ts` first (guaranteed RED — the DTO module didn't exist), then implement `create-property.dto.ts`/`update-property.dto.ts` once as the combined 3a.5+3a.7 GREEN. All three tasks (3a.5, 3a.6, 3a.7) are still fully delivered and checked off; only the *chronological* order of writing was inverted to honor strict TDD. Same reasoning applied narrowly to 3a.8 vs. the literal reading of "3a.8 RED... 3a.9 GREEN" (already the correct order) — no deviation there.
+2. **`neighborhoodId` is not an editable field in `update()`**: `design.md` lists `neighborhoodId` as part of `CreatePropertyDto`, and `UpdatePropertyDto = PartialType(CreatePropertyDto)` therefore types it as an optional update field, but **task 3a.10's enumerated test scenarios do not include a neighborhood-change scenario**, and `design.md`'s prose for `update()` only describes slug regeneration, the no-op case, and `changedFields` — it does not specify how a neighborhood change should be resolved (repository lookup, 400-if-missing, etc.). To avoid speculative untested behavior, `PropertiesService.update()` explicitly excludes `neighborhoodId` from the diffed/applied fields (see `UPDATABLE_FIELDS` and its doc comment). **This is a real gap**: submitting `neighborhoodId` in a `PATCH` request is currently silently ignored (not rejected — the DTO still accepts it since it's inherited from `CreatePropertyDto` via `PartialType`, but the service drops it). Flagged as an open item below for a follow-up task (either Phase 3b/4 or a dedicated task) to decide and implement the intended behavior.
+3. **Everything else matches `design.md` exactly**: sequence reservation via `propertyRepository.query('SELECT nextval(...)')`, code format (`SP-<n>`), slug derivation and freeze rule, `changedFields`-based audit metadata, `NotFoundException('Property not found')` message, class-level `@Auth(admin, manager)` guard boundary (method-level `@RoleProtected(admin)` for `DELETE` is Phase 4, not this slice).
+
+## Work Unit Evidence (Phase 3a)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `npm test -- src/properties/helpers/property-identifiers src/properties/dto/create-property.dto src/properties/services/properties.service src/properties/controllers/admin-properties.controller` → **4 suites, 19 tests, all passed** |
+| Runtime harness command/scenario and exact result | **N/A** — unit-only (mocked repositories via `getRepositoryToken`, no DB/HTTP harness in this project per `openspec/config.yaml`'s `integration: false`/`e2e: false`), as forecast in `tasks.md`'s Suggested Work Units table for unit 3a. No schema change in this slice, so no migration harness applies either. |
+| Rollback boundary | Revert commit `ec05f7d`: drops `src/properties/helpers/property-identifiers.ts(+.spec)`, `src/properties/dto/{create-property,update-property,index}.ts(+.spec)`, `src/properties/services/properties.service.ts(+.spec)`, `src/properties/controllers/admin-properties.controller.ts(+.spec)`, `src/common/interfaces/paginated.interface.ts`, and reverts the additive `PROPERTY_CREATED`/`PROPERTY_UPDATED` audit actions and the `PropertiesService`/`AdminPropertiesController` wiring in `properties.module.ts` back to the Phase 2 empty-skeleton state. No schema/migration change in this slice, so no DB rollback is needed. No other module depends on these new files yet (Phase 3b/4/5b build on top in later batches). |
+
+## Verification Evidence (Task 3a.17)
+
+| Command | Observed result |
+|---|---|
+| `npm test` | **PASS** — 20 test suites, 169 tests, 0 failed. Exit code 0. |
+| `npm run lint` | **PASS** — `eslint "src/**/*.ts" --fix`, exit code 0, no reported errors, no output (after the type-safety fixes noted in the TDD Cycle Evidence refactor row above). |
+| `npx tsc -p tsconfig.build.json --noEmit` | **PASS** — no output, exit code 0. |
+| `npm run build` | **PASS** — `nest build`, no output, exit code 0. |
+
+## Files Changed (Phase 3a)
+
+| File | Action |
+|------|--------|
+| `src/audit/enums/audit-action.enum.ts` | Modified (additive: `PROPERTY_CREATED`, `PROPERTY_UPDATED`) |
+| `src/common/interfaces/paginated.interface.ts` | Created |
+| `src/properties/helpers/property-identifiers.ts` (+ `.spec.ts`) | Created |
+| `src/properties/dto/create-property.dto.ts` (+ `.spec.ts`) | Created |
+| `src/properties/dto/update-property.dto.ts` | Created |
+| `src/properties/dto/index.ts` | Created |
+| `src/properties/services/properties.service.ts` (+ `.spec.ts`) | Created |
+| `src/properties/controllers/admin-properties.controller.ts` (+ `.spec.ts`) | Created |
+| `src/properties/properties.module.ts` | Modified (wires `PropertiesService` + `AdminPropertiesController`, replacing the Phase 2 empty skeleton) |
+
+## Review Budget (Phase 3a)
+
+`git diff --stat` for the implementation commit (`ec05f7d`) vs. its parent (`5b396d7`, PR 2's merge commit): **821 insertions(+), 6 deletions(-)** across 13 files (excluding `openspec/**`, `.atl/`, `.codegraph/`).
+
+This is **above** `tasks.md`'s own forecast for this slice (~400-450 lines) and above the session's 400-line review budget. No content was cut, compressed, or restyled to fit — per the apply skill's explicit instruction, the slice was implemented honestly and the overage is reported rather than iterated against. The main drivers: `create-property.dto.ts` (168 lines) has ~25 fields each needing 2-4 lines of decorators (an inherent DTO-verbosity cost, not incidental), and full TDD coverage across 4 new production files added 336 lines of test code (214 service + 82 DTO + 29 identifiers + 11 controller). **Recommendation**: treat PR 3a as `size:exception` under the `ask-on-risk` delivery strategy — the slice is already the smallest cohesive unit for "admin create/update/get" (splitting `create`/`update`/`findOne` further would break the single-controller, single-service cohesion the design calls for), and the orchestrator/user already accepted a 7-PR stacked chain for this change.
 
 ## Open Items Carried Forward
 
 - Task 1.5 (manual barrio-spelling review) — already signed off in a prior batch (2026-09-27); not re-verified this batch.
-- Phase 3a onward — NOT started.
+- **New**: `neighborhoodId` changes via `PATCH /api/admin/properties/:id` are silently ignored by `PropertiesService.update()` (see Deviation 2 above) — needs an explicit product/design decision (allow with a neighborhood-existence check, or explicitly reject with 400) before it's implemented, likely as a Phase 3b/4 follow-up or a small dedicated task.
+- **New**: PR 3a's authored line count (827) exceeds both `tasks.md`'s forecast and the 400-line review budget — flagged above for a `size:exception` decision before/at review time; not re-splittable without breaking cohesion.
+- Phase 3b onward — NOT started.
 
 ## Next Step
 
-Phase 2 (tasks 2.1–2.9) is complete and verified, including the manual migration run/revert/run against a real Postgres instance. Ready for the next `sdd-apply` batch to start Phase 3a once PR 2 is reviewed/merged per the `stacked-to-main` chain strategy. This batch did NOT start Phase 3a.
+Phase 3a (tasks 3a.1–3a.17) is complete and verified (`npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build` all green). Ready for the next `sdd-apply` batch to start Phase 3b (Admin Filters and List) once PR 3a is reviewed/merged (or explicitly continued) per the `stacked-to-main` chain strategy. Per this batch's explicit scope (Phase 3a ONLY), Phase 3b was NOT started.
