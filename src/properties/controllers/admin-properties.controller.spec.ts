@@ -8,4 +8,13 @@ describe('AdminPropertiesController', () => {
 
     expect(roles).toEqual([ValidRoles.admin, ValidRoles.manager]);
   });
+
+  it('narrows DELETE /:id to admin-only via method-level role metadata', () => {
+    const roles = Reflect.getMetadata(
+      META_ROLES,
+      AdminPropertiesController.prototype.remove,
+    );
+
+    expect(roles).toEqual([ValidRoles.admin]);
+  });
 });
