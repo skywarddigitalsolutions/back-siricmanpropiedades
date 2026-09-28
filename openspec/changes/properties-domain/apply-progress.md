@@ -2,13 +2,14 @@
 
 ## Scope of this batch
 
-Phase 3b only (PR slice 3b: Admin Filters and List), tasks 3b.1–3b.7.
-Phase 1 (Neighborhoods), Phase 2 (Property Schema Foundation), and Phase 3a
-(Admin Create/Update/Get) were completed in prior batches (see below); Phase
-3a's branch/PR (`feat/properties-3a-admin-crud`, PR #6) was open but not
-yet merged when this batch started — this batch stacks on top of it per the
-`stacked-to-main` chain strategy, on branch `feat/properties-3b-admin-list`.
-Phases 4–5b are NOT started.
+Phase 4 only (PR slice 4: Lifecycle, Deal Status, Hard Delete), tasks
+4.1–4.16. Phase 1 (Neighborhoods), Phase 2 (Property Schema Foundation),
+Phase 3a (Admin Create/Update/Get), and Phase 3b (Admin Filters and List)
+were completed in prior batches (see below). PR 3a (`feat/properties-3a-admin-crud`,
+#6) and PR 3b (`feat/properties-3b-admin-list`, #7) were both open, not yet
+merged, when this batch started — this batch stacks on top of PR 3b's tip
+per the `stacked-to-main` chain strategy, on branch `feat/properties-4-lifecycle`.
+Phases 5a–5b are NOT started.
 
 ## Mode
 
@@ -32,6 +33,16 @@ implementation commit `269bbf4` — "feat(properties): add admin filters and
 list endpoint"; the docs commit for `tasks.md`/`apply-progress.md` follows
 separately, same pattern as prior batches. No push, no PR, no branch switch
 performed.
+
+**Phase 4 branch/commit state**: `feat/properties-4-lifecycle`, stacked on
+`feat/properties-3b-admin-list` (PR #7, open, not yet merged; PR 3a already
+merged to `main` by this point), per `stacked-to-main`. Starting point: tip
+of `feat/properties-3b-admin-list` at the time this batch started (commit
+`e121817` — "docs(properties-domain): mark phase 3b tasks complete, record
+apply progress"). This batch adds implementation commit `5f3c5d4` —
+"feat(properties): add lifecycle, deal status, and hard delete"; the docs
+commit for `tasks.md`/`apply-progress.md` follows separately, same pattern
+as prior batches. No push, no PR, no branch switch performed.
 
 ## Prior batches (for reference)
 
@@ -324,14 +335,92 @@ None — implementation matches `design.md`'s query-builder contract (`WhereClau
 
 This is **above** `tasks.md`'s own forecast for this slice (~220-260 lines) and **above** the session's 400-line review budget, by 59 lines. No content was cut, compressed, or restyled to fit — per the apply skill's explicit instruction, the slice was implemented honestly and the overage is reported rather than iterated against. The main drivers: the 11-case `property-query.builder.spec.ts` (128 lines) and the 3-case `findAll` extension to `properties.service.spec.ts` (90 lines) both needed one assertion block per filter/behavior to triangulate the pure builder and the chainable-query-builder mock, and `admin-property-filters.dto.ts` (75 lines) carries 8 fields at 2-4 decorator lines each — the same per-field DTO-verbosity cost noted in Phase 3a. **Recommendation**: treat PR 3b as `size:exception` under the `ask-on-risk` delivery strategy, same as PR 3a — this slice is already the smallest cohesive unit for "admin filters and list" (splitting the filters DTO from the query builder it feeds, or the query builder from the `findAll()` that applies it, would leave an intermediate commit that doesn't compile or doesn't test its own behavior), and the orchestrator/user already accepted a 7-PR stacked chain with two individually-borderline slices (1, 3a) noted in `tasks.md` itself.
 
+## Completed Tasks — Phase 4 (16/16)
+
+- [x] 4.1 `AuditAction.PROPERTY_PUBLISHED` / `PROPERTY_ARCHIVED` / `PROPERTY_UNPUBLISHED` / `PROPERTY_DEAL_STATUS_CHANGED` / `PROPERTY_DELETED` added (additive)
+- [x] 4.2 RED `src/properties/helpers/property-lifecycle.spec.ts` (`assertPublicationTransition`, `it.each` over all 9 `(from, action)` combinations)
+- [x] 4.3 GREEN `src/properties/helpers/property-lifecycle.ts`
+- [x] 4.4 RED extend `properties.service.spec.ts` (`publish`)
+- [x] 4.5 GREEN `PropertiesService.publish()`
+- [x] 4.6 RED extend `properties.service.spec.ts` (`archive`)
+- [x] 4.7 GREEN `PropertiesService.archive()`
+- [x] 4.8 RED extend `properties.service.spec.ts` (`unpublish`)
+- [x] 4.9 GREEN `PropertiesService.unpublish()`
+- [x] 4.10 RED extend `properties.service.spec.ts` (`updateDealStatus`)
+- [x] 4.11 GREEN `PropertiesService.updateDealStatus()`
+- [x] 4.12 RED extend `properties.service.spec.ts` (`remove`)
+- [x] 4.13 GREEN `PropertiesService.remove()`
+- [x] 4.14 RED extend `admin-properties.controller.spec.ts` (`DELETE /:id` method-level `@RoleProtected(admin)` metadata)
+- [x] 4.15 GREEN `src/properties/dto/update-deal-status.dto.ts` + 5 new `AdminPropertiesController` routes (`publish`/`archive`/`unpublish`/`deal-status`/`DELETE`)
+- [x] 4.16 Verify slice — all four gates green (see Verification Evidence below)
+
+## TDD Cycle Evidence (Phase 4)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 4.1 | N/A — purely structural (five additive enum members) | N/A | N/A | N/A | N/A | Triangulation skipped: single possible output, no branching/logic (matches the precedent set in 1.6/3a.4) | N/A |
+| 4.2/4.3 | `src/properties/helpers/property-lifecycle.spec.ts` | Unit (pure) | N/A (new) | ✅ Written first — failed with `TS2307: Cannot find module './property-lifecycle'` (confirmed by running `npm test -- src/properties/helpers/property-lifecycle` before creating the implementation file) | ✅ 9/9 passed after implementing `assertPublicationTransition` | ✅ `it.each` over all 9 `(from, action)` combinations of the reconciled matrix: 6 valid transitions (each asserting the exact target status) + 3 invalid combinations (each asserting `BadRequestException` naming the current status) — this is the full scenario space of the spec's transition matrix, not a subset | ➖ None needed — single-pass lookup table, no branching to simplify |
+| 4.4/4.5 | extend `properties.service.spec.ts` (`publish`) | Unit (mocked repositories) | ✅ 16/16 (create+update+findOne+findAll) re-run green before extending | ✅ Written first — failed with `TS2339: Property 'publish' does not exist on type 'PropertiesService'` (confirmed via `npm test -- src/properties/services/properties.service` before implementing) | ✅ 4/4 new tests passed after implementing `publish()` | ✅ 4 cases: first publish sets `firstPublishedAt` + `firstPublish: true`, re-publish from `archived` leaves `firstPublishedAt` unchanged + `firstPublish: false`, invalid transition (already `published`) rejected without save/audit, missing id → `NotFoundException` | ➖ None needed |
+| 4.6/4.7 | extend `properties.service.spec.ts` (`archive`) | Unit (mocked repositories) | ✅ 20/20 re-run green before extending | ✅ Written first — failed with `TS2339: Property 'archive' does not exist on type 'PropertiesService'` | ✅ 2/2 new tests passed after implementing `archive()` | ✅ 2 cases: valid archive from `published` (saves + audits `{ code, from }`), invalid archive from already-`archived` (rejected, no save/audit) | ➖ None needed |
+| 4.8/4.9 | extend `properties.service.spec.ts` (`unpublish`) | Unit (mocked repositories) | ✅ 22/22 re-run green before extending | ✅ Written first — failed with `TS2339: Property 'unpublish' does not exist on type 'PropertiesService'` | ✅ 2/2 new tests passed after implementing `unpublish()` | ✅ 2 cases: valid unpublish from `published` (`firstPublishedAt` unchanged, saves + audits), invalid unpublish from `draft` (rejected, no save/audit) | ➖ None needed |
+| 4.10/4.11 | extend `properties.service.spec.ts` (`updateDealStatus`) | Unit (mocked repositories) | ✅ 24/24 re-run green before extending | ✅ Written first — failed with `TS2339: Property 'updateDealStatus' does not exist on type 'PropertiesService'` | ✅ 2/2 new tests passed after implementing `updateDealStatus()` | ✅ 2 cases: valid change (`available` → `reserved`, saves + audits `{ code, from, to }`), same-value rejection (`sold` → `sold`, no save/audit) | ➖ None needed |
+| 4.12/4.13 | extend `properties.service.spec.ts` (`remove`) | Unit (mocked repositories) | ✅ 26/26 re-run green before extending | ✅ Written first — failed with `TS2339: Property 'remove' does not exist on type 'PropertiesService'` | ✅ 2/2 new tests passed after implementing `remove()` | ✅ 2 cases: never-published property (`firstPublishedAt = null`) deletes via `propertyRepository.delete(id)` + audits `{ code, title }`; ever-published property (`firstPublishedAt` set) rejected without deleting or auditing | ➖ None needed |
+| 4.14/4.15 | `admin-properties.controller.spec.ts` (extend) | Unit (class/method metadata) | ✅ 1/1 (class-level roles test) re-run green before extending | ✅ Written first — failed with `TS2339: Property 'remove' does not exist on type 'AdminPropertiesController'` (confirmed via `npm test -- src/properties/controllers/admin-properties.controller` before implementing) | ✅ 1/1 new test passed after adding `@RoleProtected(ValidRoles.admin)` on the `remove` handler alongside the other 4 new routes | ➖ Single scenario — method-level role metadata has one expected value (`[admin]`), same precedent as the class-level test; the guard-boundary resolution itself (`UserRoleGuard`'s handler-overrides-class lookup) is existing, already-tested infrastructure | ➖ None needed |
+
+### Test Summary (Phase 4)
+- **Total tests written this batch**: 22 — 9 lifecycle (`property-lifecycle.spec.ts`, new file), 12 service (`publish`×4, `archive`×2, `unpublish`×2, `updateDealStatus`×2, `remove`×2, extending `properties.service.spec.ts` from 15→27 tests), 1 controller (extending `admin-properties.controller.spec.ts` from 1→2 tests)
+- **Total tests passing**: 22/22 new this batch (confirmed by executed per-file counts: lifecycle 9/9, service 27/27 total, controller 2/2 total), **208/208 (full suite after this batch, up from 186 pre-batch)**
+- **Layers used**: Unit only — no integration/e2e harness exists in this project (`openspec/config.yaml`: `integration: false`, `e2e: false`), matching the Suggested Work Units table's "N/A — unit-only" note for unit 4. `property-lifecycle.spec.ts` is a pure-function test (no mocks); the service tests use the same hand-mocked-repository pattern as `create`/`update`/`findOne`/`findAll`; the controller test uses `Reflect.getMetadata`, matching the existing class-level pattern.
+- **Approval tests** (refactoring): None — no pre-existing behavior was changed; `create`/`update`/`findOne`/`findAll` and their 26 existing tests, plus the pre-existing controller class-metadata test, all re-run unchanged and green throughout.
+- **Pure functions created**: 1 (`assertPublicationTransition`), triangulated with all 9 cases in the spec's transition matrix (6 valid + 3 invalid) — the full scenario space, not a sample.
+
+## Deviations from Design (Phase 4)
+
+None — implementation matches `design.md`'s transition matrix table (Decision: Publication transition matrix), the deal-status rule (Decision: Deal status independent of publication), the hard-delete eligibility rule (Decision: Hard delete eligibility = `firstPublishedAt IS NULL`), and the `DELETE` guard decision (Decision: Hard delete guard uses method-level `@RoleProtected(ValidRoles.admin)`) exactly. One implementation-level note: `remove()` uses `propertyRepository.delete(id)` (criteria-based) rather than `repository.remove(entity)` (entity-based) — matching the existing codebase convention for hard deletes (`revokedTokenRepository.delete(...)`, `backupCodeRepository.delete(...)`, `auditLogRepository.delete(...)` in `retention.service.ts`/`mfa.service.ts`/`auth.service.ts`); `design.md` does not specify which TypeORM method, only the business rule and response shape (`204 No Content`), both of which are satisfied.
+
+## Work Unit Evidence (Phase 4)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `npm test -- src/properties/helpers/property-lifecycle src/properties/services/properties.service src/properties/controllers/admin-properties.controller` → **3 suites, 38 tests, all passed** (9 lifecycle + 27 service + 2 controller) |
+| Runtime harness command/scenario and exact result | **N/A** — unit-only (mocked repositories via `getRepositoryToken`, no DB/HTTP harness in this project per `openspec/config.yaml`'s `integration: false`/`e2e: false`), as forecast in `tasks.md`'s Suggested Work Units table for unit 4. No schema/migration change in this slice. |
+| Rollback boundary | Revert commit `5f3c5d4`: drops `src/properties/helpers/property-lifecycle.ts(+.spec)`, `src/properties/dto/update-deal-status.dto.ts`, the `publish`/`archive`/`unpublish`/`updateDealStatus`/`remove` methods and their imports in `properties.service.ts`, the 5 new routes on `AdminPropertiesController` and their imports, the `update-deal-status.dto` export line in `dto/index.ts`, and the 5 additive `PROPERTY_*` audit actions. Additive to Phase 3a/3b's `create`/`update`/`findOne`/`findAll` routes — no other module depends on this slice's new methods yet (Phase 5a/5b are unstarted). No migration/schema change in this slice, so no DB rollback is needed. |
+
+## Verification Evidence (Task 4.16)
+
+| Command | Observed result |
+|---|---|
+| `npm test` | **PASS** — 22 test suites, 208 tests, 0 failed. Exit code 0. |
+| `npm run lint` | **PASS** — `eslint "src/**/*.ts" --fix`, exit code 0, no reported errors. Auto-reformatted `property-lifecycle.spec.ts`'s `it.each` array literals (multi-line object formatting via Prettier); re-ran `npm test` after the fix — still 22 suites, 208 tests, all green. |
+| `npx tsc -p tsconfig.build.json --noEmit` | **PASS** — no output, exit code 0. |
+| `npm run build` | **PASS** — `nest build`, no output, exit code 0. |
+
+## Files Changed (Phase 4)
+
+| File | Action |
+|------|--------|
+| `src/audit/enums/audit-action.enum.ts` | Modified (additive: `PROPERTY_PUBLISHED`, `PROPERTY_ARCHIVED`, `PROPERTY_UNPUBLISHED`, `PROPERTY_DEAL_STATUS_CHANGED`, `PROPERTY_DELETED`) |
+| `src/properties/helpers/property-lifecycle.ts` (+ `.spec.ts`) | Created |
+| `src/properties/dto/update-deal-status.dto.ts` | Created |
+| `src/properties/dto/index.ts` | Modified (additive export) |
+| `src/properties/services/properties.service.ts` (+ extended `.spec.ts`) | Modified (adds `publish`, `archive`, `unpublish`, `updateDealStatus`, `remove`) |
+| `src/properties/controllers/admin-properties.controller.ts` (+ extended `.spec.ts`) | Modified (adds `PATCH :id/publish`, `PATCH :id/archive`, `PATCH :id/unpublish`, `PATCH :id/deal-status`, `DELETE :id`) |
+
+## Review Budget (Phase 4)
+
+`git diff --stat feat/properties-3b-admin-list...HEAD -- . ':!openspec'` for this batch's implementation commit (`5f3c5d4`) against the tip of `feat/properties-3b-admin-list`: **663 insertions(+), 4 deletions(-)** across 9 files (667 total authored changed lines).
+
+This is **above** `tasks.md`'s own forecast for this slice (~380-420 lines) and **above** the session's 400-line review budget, by 247–287 lines relative to the forecast. No content was cut, compressed, or restyled to fit — per the apply skill's explicit instruction, the slice was implemented honestly and the overage is reported rather than iterated against. The main drivers: `admin-properties.controller.ts` (123 lines added) carries 5 new routes each with 5-8 lines of Swagger `@Api*` decorators (matching the existing per-route documentation density from Phase 3a/3b, not incidental bloat), and full TDD coverage across 5 new service methods added 275 lines to `properties.service.spec.ts` (12 new test cases, each needing its own fixture + assertion block to triangulate a distinct business rule: first-publish-vs-republish, 3 invalid-transition rejections, same-value rejection, ever-published rejection) plus 68 lines for the lifecycle helper's 9-case `it.each` matrix. **Recommendation**: treat PR 4 as `size:exception` under the `ask-on-risk` delivery strategy, consistent with PR 3a (821 lines) and PR 3b (459 lines) — this slice is already the smallest cohesive unit for "lifecycle + deal status + hard delete" per `tasks.md`'s own Suggested Work Units table (splitting the 3 lifecycle verbs from deal-status/delete would leave an intermediate commit exercising only part of the reconciled transition matrix), and the orchestrator/user already accepted a 7-PR stacked chain for this change with two other slices already carrying the same recommendation.
+
 ## Open Items Carried Forward
 
 - Task 1.5 (manual barrio-spelling review) — already signed off in a prior batch (2026-09-27); not re-verified this batch.
 - ~~`neighborhoodId` changes via `PATCH` were silently ignored~~ — **RESOLVED** in the follow-up batch above (Phase 3a).
-- PR 3a's authored line count exceeds both `tasks.md`'s forecast and the 400-line review budget — flagged for a `size:exception` decision before/at review time; not re-splittable without breaking cohesion. PR 3a is still open (not merged) as of this batch.
-- PR 3b's authored line count (459) also exceeds both `tasks.md`'s forecast (~220-260) and the 400-line review budget — flagged for the same `size:exception` decision; see Review Budget above.
-- Phase 4 onward — NOT started.
+- PR 3a's authored line count exceeds both `tasks.md`'s forecast and the 400-line review budget — flagged for a `size:exception` decision before/at review time; not re-splittable without breaking cohesion. Merge status as of this batch: unknown to the executor (session instructions state PR 3a is "already merged to main" as of Phase 4's start — see Scope of this batch above).
+- PR 3b's authored line count (459) also exceeds both `tasks.md`'s forecast (~220-260) and the 400-line review budget — flagged for the same `size:exception` decision; PR 3b was still open (not merged) as of this batch's start.
+- PR 4's authored line count (667) also exceeds both `tasks.md`'s forecast (~380-420) and the 400-line review budget — flagged for the same `size:exception` decision; see Review Budget above.
+- Phase 5a onward — NOT started.
 
 ## Next Step
 
-Phase 3b (tasks 3b.1–3b.7) is complete and verified (`npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build` all green: 21 suites, 186 tests). Ready for the next `sdd-apply` batch to start Phase 4 (Lifecycle, Deal Status, Hard Delete) once PR 3a and PR 3b are reviewed/merged (or explicitly continued) per the `stacked-to-main` chain strategy. Per this batch's explicit scope (Phase 3b ONLY), Phase 4 was NOT started. Both PR 3a and PR 3b carry a recommended `size:exception` (821 and 459 authored lines respectively) awaiting the maintainer's decision.
+Phase 4 (tasks 4.1–4.16) is complete and verified (`npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build` all green: 22 suites, 208 tests). Ready for the next `sdd-apply` batch to start Phase 5a (Public Filters DTO and Query Builder) once PR 3b and PR 4 are reviewed/merged (or explicitly continued) per the `stacked-to-main` chain strategy. Per this batch's explicit scope (Phase 4 ONLY), Phase 5a was NOT started. PR 3b and PR 4 both carry a recommended `size:exception` (459 and 667 authored lines respectively) awaiting the maintainer's decision, consistent with PR 3a's already-flagged overage.

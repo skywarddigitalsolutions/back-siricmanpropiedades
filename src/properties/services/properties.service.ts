@@ -16,6 +16,7 @@ import {
   buildPropertySlug,
   formatPropertyCode,
 } from '../helpers/property-identifiers';
+import { assertPublicationTransition } from '../helpers/property-lifecycle';
 import {
   buildAdminPropertyQuery,
   NEIGHBORHOOD_ALIAS,
@@ -243,5 +244,137 @@ export class PropertiesService {
 
     const [items, total] = await queryBuilder.getManyAndCount();
     return { items, total };
+  }
+
+  /**
+   * Publishes a property (`draft`/`archived` -> `published`). `firstPublishedAt`
+   * is set only on first publish (still null); a re-publish from `archived`
+   * leaves it unchanged. Invalid transitions throw via
+   * `assertPublicationTransition` before anything is saved or audited.
+   */
+  async publish(id: string, actor?: AuditActor): Promise<Property> {
+    const property = await this.findOne(id);
+    const from = property.publicationStatus;
+    const to = assertPublicationTransition(from, 'publish');
+
+    const firstPublish = property.firstPublishedAt === null;
+    if (firstPublish) property.firstPublishedAt = new Date();
+    property.publicationStatus = to;
+
+    const saved = await this.propertyRepository.save(property);
+
+    await this.auditLogService.record({
+      actor,
+      action: AuditAction.PROPERTY_PUBLISHED,
+      entityType: 'property',
+      entityId: saved.id,
+      metadata: { code: saved.code, from, firstPublish },
+    });
+
+    return saved;
+  }
+
+  /**
+   * Archives a property (`draft`/`published` -> `archived`), the soft
+   * delete. `firstPublishedAt` is never touched.
+   */
+  async archive(id: string, actor?: AuditActor): Promise<Property> {
+    const property = await this.findOne(id);
+    const from = property.publicationStatus;
+    const to = assertPublicationTransition(from, 'archive');
+
+    property.publicationStatus = to;
+
+    const saved = await this.propertyRepository.save(property);
+
+    await this.auditLogService.record({
+      actor,
+      action: AuditAction.PROPERTY_ARCHIVED,
+      entityType: 'property',
+      entityId: saved.id,
+      metadata: { code: saved.code, from },
+    });
+
+    return saved;
+  }
+
+  /**
+   * Unpublishes a property back to `draft` (`published`/`archived` -> `draft`).
+   * `firstPublishedAt` MUST NOT be cleared: it keeps the slug frozen and
+   * hard-delete ineligible.
+   */
+  async unpublish(id: string, actor?: AuditActor): Promise<Property> {
+    const property = await this.findOne(id);
+    const from = property.publicationStatus;
+    const to = assertPublicationTransition(from, 'unpublish');
+
+    property.publicationStatus = to;
+
+    const saved = await this.propertyRepository.save(property);
+
+    await this.auditLogService.record({
+      actor,
+      action: AuditAction.PROPERTY_UNPUBLISHED,
+      entityType: 'property',
+      entityId: saved.id,
+      metadata: { code: saved.code, from },
+    });
+
+    return saved;
+  }
+
+  /**
+   * Sets `dealStatus`, independent of `publicationStatus`. Setting the
+   * current value again is a 400 (no save, no audit).
+   */
+  async updateDealStatus(
+    id: string,
+    dealStatus: DealStatus,
+    actor?: AuditActor,
+  ): Promise<Property> {
+    const property = await this.findOne(id);
+    const from = property.dealStatus;
+    if (from === dealStatus)
+      throw new BadRequestException(
+        `Property already has dealStatus "${dealStatus}"`,
+      );
+
+    property.dealStatus = dealStatus;
+
+    const saved = await this.propertyRepository.save(property);
+
+    await this.auditLogService.record({
+      actor,
+      action: AuditAction.PROPERTY_DEAL_STATUS_CHANGED,
+      entityType: 'property',
+      entityId: saved.id,
+      metadata: { code: saved.code, from, to: dealStatus },
+    });
+
+    return saved;
+  }
+
+  /**
+   * Hard-deletes a property, allowed only when it was never published
+   * (`firstPublishedAt IS NULL`). Guard access is method-level
+   * (`@RoleProtected(admin)`) on the controller; this rule is the business
+   * eligibility check.
+   */
+  async remove(id: string, actor?: AuditActor): Promise<void> {
+    const property = await this.findOne(id);
+    if (property.firstPublishedAt !== null)
+      throw new BadRequestException(
+        'Property was published at least once; archive it instead',
+      );
+
+    await this.propertyRepository.delete(id);
+
+    await this.auditLogService.record({
+      actor,
+      action: AuditAction.PROPERTY_DELETED,
+      entityType: 'property',
+      entityId: property.id,
+      metadata: { code: property.code, title: property.title },
+    });
   }
 }

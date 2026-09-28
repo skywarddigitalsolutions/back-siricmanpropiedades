@@ -13,4 +13,9 @@ export enum AuditAction {
   NEIGHBORHOOD_CREATED = 'neighborhood.created',
   PROPERTY_CREATED = 'property.created',
   PROPERTY_UPDATED = 'property.updated',
+  PROPERTY_PUBLISHED = 'property.published',
+  PROPERTY_ARCHIVED = 'property.archived',
+  PROPERTY_UNPUBLISHED = 'property.unpublished',
+  PROPERTY_DEAL_STATUS_CHANGED = 'property.deal_status_changed',
+  PROPERTY_DELETED = 'property.deleted',
 }

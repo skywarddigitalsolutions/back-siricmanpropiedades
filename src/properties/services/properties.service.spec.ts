@@ -8,6 +8,7 @@ import { AuditLogService } from '../../audit/audit-log.service';
 import { AuditAction } from '../../audit/enums/audit-action.enum';
 import {
   Currency,
+  DealStatus,
   Operation,
   PropertyType,
   PublicationStatus,
@@ -42,6 +43,7 @@ describe('PropertiesService', () => {
       save: jest.fn(async (p) => ({ id: 'property-1', ...p })),
       findOne: jest.fn(),
       createQueryBuilder: jest.fn(),
+      delete: jest.fn(),
     };
 
     neighborhoodRepository = {
@@ -353,6 +355,279 @@ describe('PropertiesService', () => {
 
       expect(queryBuilder.andWhere).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ items: rows, total: 1 });
+    });
+  });
+
+  describe('publish', () => {
+    function draftProperty(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'property-1',
+        code: 'SP-101',
+        publicationStatus: PublicationStatus.DRAFT,
+        firstPublishedAt: null,
+        neighborhood: { id: 'neighborhood-1', name: 'Palermo' },
+        ...overrides,
+      };
+    }
+
+    it('sets firstPublishedAt on first publish, saves, and records PROPERTY_PUBLISHED with firstPublish: true', async () => {
+      propertyRepository.findOne.mockResolvedValue(draftProperty());
+      const actor = { id: 'admin-1', userName: 'admin' };
+
+      const result = await service.publish('property-1', actor);
+
+      expect(result.publicationStatus).toBe(PublicationStatus.PUBLISHED);
+      expect(result.firstPublishedAt).toBeInstanceOf(Date);
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actor,
+          action: AuditAction.PROPERTY_PUBLISHED,
+          entityType: 'property',
+          entityId: 'property-1',
+          metadata: {
+            code: 'SP-101',
+            from: PublicationStatus.DRAFT,
+            firstPublish: true,
+          },
+        }),
+      );
+    });
+
+    it('leaves firstPublishedAt unchanged on re-publish from archived and records firstPublish: false', async () => {
+      const firstPublishedAt = new Date('2026-01-01');
+      propertyRepository.findOne.mockResolvedValue(
+        draftProperty({
+          publicationStatus: PublicationStatus.ARCHIVED,
+          firstPublishedAt,
+        }),
+      );
+
+      const result = await service.publish('property-1');
+
+      expect(result.publicationStatus).toBe(PublicationStatus.PUBLISHED);
+      expect(result.firstPublishedAt).toBe(firstPublishedAt);
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: AuditAction.PROPERTY_PUBLISHED,
+          metadata: {
+            code: 'SP-101',
+            from: PublicationStatus.ARCHIVED,
+            firstPublish: false,
+          },
+        }),
+      );
+    });
+
+    it('rejects an invalid transition (already published) without saving or auditing', async () => {
+      propertyRepository.findOne.mockResolvedValue(
+        draftProperty({ publicationStatus: PublicationStatus.PUBLISHED }),
+      );
+
+      await expect(service.publish('property-1')).rejects.toThrow(
+        BadRequestException,
+      );
+
+      expect(propertyRepository.save).not.toHaveBeenCalled();
+      expect(auditLogService.record).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the property does not exist', async () => {
+      propertyRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.publish('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('archive', () => {
+    function property(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'property-1',
+        code: 'SP-101',
+        publicationStatus: PublicationStatus.PUBLISHED,
+        firstPublishedAt: new Date('2026-01-01'),
+        neighborhood: { id: 'neighborhood-1', name: 'Palermo' },
+        ...overrides,
+      };
+    }
+
+    it('archives from published, saves, and records PROPERTY_ARCHIVED with the prior status', async () => {
+      propertyRepository.findOne.mockResolvedValue(property());
+      const actor = { id: 'admin-1', userName: 'admin' };
+
+      const result = await service.archive('property-1', actor);
+
+      expect(result.publicationStatus).toBe(PublicationStatus.ARCHIVED);
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actor,
+          action: AuditAction.PROPERTY_ARCHIVED,
+          entityType: 'property',
+          entityId: 'property-1',
+          metadata: { code: 'SP-101', from: PublicationStatus.PUBLISHED },
+        }),
+      );
+    });
+
+    it('throws BadRequestException when invoked on an already-archived property', async () => {
+      propertyRepository.findOne.mockResolvedValue(
+        property({ publicationStatus: PublicationStatus.ARCHIVED }),
+      );
+
+      await expect(service.archive('property-1')).rejects.toThrow(
+        BadRequestException,
+      );
+
+      expect(propertyRepository.save).not.toHaveBeenCalled();
+      expect(auditLogService.record).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('unpublish', () => {
+    function publishedProperty(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'property-1',
+        code: 'SP-101',
+        publicationStatus: PublicationStatus.PUBLISHED,
+        firstPublishedAt: new Date('2026-01-01'),
+        neighborhood: { id: 'neighborhood-1', name: 'Palermo' },
+        ...overrides,
+      };
+    }
+
+    it('unpublishes to draft, keeps firstPublishedAt, and records PROPERTY_UNPUBLISHED', async () => {
+      const firstPublishedAt = new Date('2026-01-01');
+      propertyRepository.findOne.mockResolvedValue(
+        publishedProperty({ firstPublishedAt }),
+      );
+      const actor = { id: 'admin-1', userName: 'admin' };
+
+      const result = await service.unpublish('property-1', actor);
+
+      expect(result.publicationStatus).toBe(PublicationStatus.DRAFT);
+      expect(result.firstPublishedAt).toBe(firstPublishedAt);
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actor,
+          action: AuditAction.PROPERTY_UNPUBLISHED,
+          entityType: 'property',
+          entityId: 'property-1',
+          metadata: { code: 'SP-101', from: PublicationStatus.PUBLISHED },
+        }),
+      );
+    });
+
+    it('throws BadRequestException when invoked on a draft property', async () => {
+      propertyRepository.findOne.mockResolvedValue(
+        publishedProperty({ publicationStatus: PublicationStatus.DRAFT }),
+      );
+
+      await expect(service.unpublish('property-1')).rejects.toThrow(
+        BadRequestException,
+      );
+
+      expect(propertyRepository.save).not.toHaveBeenCalled();
+      expect(auditLogService.record).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateDealStatus', () => {
+    function property(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'property-1',
+        code: 'SP-101',
+        dealStatus: DealStatus.AVAILABLE,
+        neighborhood: { id: 'neighborhood-1', name: 'Palermo' },
+        ...overrides,
+      };
+    }
+
+    it('succeeds for a new deal status from any publicationStatus and records PROPERTY_DEAL_STATUS_CHANGED', async () => {
+      propertyRepository.findOne.mockResolvedValue(property());
+      const actor = { id: 'admin-1', userName: 'admin' };
+
+      const result = await service.updateDealStatus(
+        'property-1',
+        DealStatus.RESERVED,
+        actor,
+      );
+
+      expect(result.dealStatus).toBe(DealStatus.RESERVED);
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actor,
+          action: AuditAction.PROPERTY_DEAL_STATUS_CHANGED,
+          entityType: 'property',
+          entityId: 'property-1',
+          metadata: {
+            code: 'SP-101',
+            from: DealStatus.AVAILABLE,
+            to: DealStatus.RESERVED,
+          },
+        }),
+      );
+    });
+
+    it('rejects setting the current value again, without saving or auditing', async () => {
+      propertyRepository.findOne.mockResolvedValue(
+        property({ dealStatus: DealStatus.SOLD }),
+      );
+
+      await expect(
+        service.updateDealStatus('property-1', DealStatus.SOLD),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(propertyRepository.save).not.toHaveBeenCalled();
+      expect(auditLogService.record).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('remove', () => {
+    function neverPublishedProperty(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'property-1',
+        code: 'SP-101',
+        title: 'Departamento 3 ambientes en Palermo',
+        firstPublishedAt: null,
+        neighborhood: { id: 'neighborhood-1', name: 'Palermo' },
+        ...overrides,
+      };
+    }
+
+    it('deletes the row and records PROPERTY_DELETED when firstPublishedAt is null', async () => {
+      propertyRepository.findOne.mockResolvedValue(neverPublishedProperty());
+      propertyRepository.delete.mockResolvedValue({ affected: 1 });
+      const actor = { id: 'admin-1', userName: 'admin' };
+
+      await service.remove('property-1', actor);
+
+      expect(propertyRepository.delete).toHaveBeenCalledWith('property-1');
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actor,
+          action: AuditAction.PROPERTY_DELETED,
+          entityType: 'property',
+          entityId: 'property-1',
+          metadata: {
+            code: 'SP-101',
+            title: 'Departamento 3 ambientes en Palermo',
+          },
+        }),
+      );
+    });
+
+    it('rejects deletion when firstPublishedAt is set, without deleting or auditing', async () => {
+      propertyRepository.findOne.mockResolvedValue(
+        neverPublishedProperty({ firstPublishedAt: new Date('2026-01-01') }),
+      );
+
+      await expect(service.remove('property-1')).rejects.toThrow(
+        BadRequestException,
+      );
+
+      expect(propertyRepository.delete).not.toHaveBeenCalled();
+      expect(auditLogService.record).not.toHaveBeenCalled();
     });
   });
 });
