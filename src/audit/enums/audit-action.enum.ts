@@ -11,4 +11,6 @@ export enum AuditAction {
   MFA_ENABLED = 'mfa.enabled',
   MFA_DISABLED = 'mfa.disabled',
   NEIGHBORHOOD_CREATED = 'neighborhood.created',
+  PROPERTY_CREATED = 'property.created',
+  PROPERTY_UPDATED = 'property.updated',
 }
