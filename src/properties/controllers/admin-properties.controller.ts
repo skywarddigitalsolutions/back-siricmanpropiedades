@@ -6,10 +6,17 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { PropertiesService } from '../services/properties.service';
-import { CreatePropertyDto, UpdatePropertyDto } from '../dto';
+import {
+  AdminPropertyFiltersDto,
+  CreatePropertyDto,
+  UpdatePropertyDto,
+} from '../dto';
+import { Property } from '../entities/property.entity';
+import { Paginated } from '../../common/interfaces/paginated.interface';
 import { Auth, GetUser } from '../../auth/decorators';
 import { ValidRoles } from '../../auth/interfaces';
 import { User } from '../../users/entities/user.entity';
@@ -35,6 +42,17 @@ export class AdminPropertiesController {
       id: actor.id,
       userName: actor.userName,
     });
+  }
+
+  /** GET /api/admin/properties - List properties, filterable, every publicationStatus */
+  @ApiOperation({ summary: 'List properties' })
+  @ApiResponse({ status: 200, description: 'Paginated list of properties' })
+  @ApiResponse({ status: 400, description: 'Validation' })
+  @Get()
+  findAll(
+    @Query() filters: AdminPropertyFiltersDto,
+  ): Promise<Paginated<Property>> {
+    return this.propertiesService.findAll(filters);
   }
 
   /** GET /api/admin/properties/:id - Obtener propiedad por id */
