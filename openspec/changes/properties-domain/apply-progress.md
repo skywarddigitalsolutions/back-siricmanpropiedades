@@ -2,22 +2,25 @@
 
 ## Scope of this batch
 
-Phase 5a only (PR slice 5a: Public Filters DTO and Query Builder), tasks
-5a.1–5a.7. Phase 1 (Neighborhoods), Phase 2 (Property Schema Foundation),
-Phase 3a (Admin Create/Update/Get), Phase 3b (Admin Filters and List), and
-Phase 4 (Lifecycle, Deal Status, Hard Delete) were completed in prior
-batches (see below). PR #8 (`feat/properties-4-lifecycle`) was open, not yet
-merged, when this batch started, stacked on PR #7 (`feat/properties-3b-admin-list`,
-also open) — this batch stacks on top of PR #8's tip per the
-`stacked-to-main` chain strategy, on branch `feat/properties-5a-public-filters`.
-Phase 5b is NOT started.
+Phase 5b only (PR slice 5b: Public Mapper, Service, Controller), tasks
+5b.1–5b.7 — the final slice (7 of 7) of the `properties-domain` change.
+Phase 1 (Neighborhoods), Phase 2 (Property Schema Foundation), Phase 3a
+(Admin Create/Update/Get), Phase 3b (Admin Filters and List), Phase 4
+(Lifecycle, Deal Status, Hard Delete), and Phase 5a (Public Filters DTO and
+Query Builder) were completed in prior batches (see below). PR #9
+(`feat/properties-5a-public-filters`) was open, not yet merged, when this
+batch started, stacked on PR #8 (`feat/properties-4-lifecycle`, also open)
+→ PR #7 (`feat/properties-3b-admin-list`, also open) — this batch stacks on
+top of PR #9's tip per the `stacked-to-main` chain strategy, on branch
+`feat/properties-5b-public-catalog`.
 
-**Previous "Scope of this batch" (Phase 4, for reference)**: Phase 4 only
-(PR slice 4: Lifecycle, Deal Status, Hard Delete), tasks 4.1–4.16. PR 3a
-(`feat/properties-3a-admin-crud`, #6) and PR 3b (`feat/properties-3b-admin-list`,
-#7) were both open, not yet merged, when that batch started — it stacked on
-top of PR 3b's tip per the `stacked-to-main` chain strategy, on branch
-`feat/properties-4-lifecycle`.
+**Previous "Scope of this batch" (Phase 5a, for reference)**: Phase 5a only
+(PR slice 5a: Public Filters DTO and Query Builder), tasks 5a.1–5a.7. PR #8
+(`feat/properties-4-lifecycle`) was open, not yet merged, when that batch
+started, stacked on PR #7 (`feat/properties-3b-admin-list`, also open) —
+that batch stacked on top of PR #8's tip per the `stacked-to-main` chain
+strategy, on branch `feat/properties-5a-public-filters`. Phase 5b was NOT
+started in that batch.
 
 ## Mode
 
@@ -62,6 +65,18 @@ apply progress"). This batch adds implementation commit `d481474` —
 "feat(properties): add public filters DTO and query builder"; the docs
 commit for `tasks.md`/`apply-progress.md` follows separately, same pattern
 as prior batches. No push, no PR, no branch switch performed.
+
+**Phase 5b branch/commit state**: `feat/properties-5b-public-catalog`,
+stacked on `feat/properties-5a-public-filters` (PR #9, open, not yet
+merged), which is itself stacked on `feat/properties-4-lifecycle` (PR #8,
+open, not yet merged) → `feat/properties-3b-admin-list` (PR #7, open, not
+yet merged), per `stacked-to-main`. Starting point: tip of
+`feat/properties-5a-public-filters` at the time this batch started (the
+commit recording Phase 5a's tasks/apply-progress). This batch adds
+implementation commit `a7f509f` — "feat(properties): add public mapper,
+service, and controller"; the docs commit for `tasks.md`/`apply-progress.md`
+follows separately, same pattern as prior batches. No push, no PR, no
+branch switch performed.
 
 ## Prior batches (for reference)
 
@@ -492,17 +507,118 @@ None — implementation matches `design.md`'s DTO contract (`PublicPropertyFilte
 
 This is **above** `tasks.md`'s own forecast for this slice (~380-420 lines) and **above** the session's 400-line review budget, by 542–582 lines relative to the forecast — the largest overage of any slice so far in this change. No content was cut, compressed, or restyled to fit — per the apply skill's explicit instruction, the slice was implemented honestly and the overage is reported rather than iterated against. The main drivers: `public-property-filters.dto.ts` (172 lines) carries 17 fields, several needing 5-6 decorator/comment lines each (the custom `@RequiresCurrency`/`@IsGreaterThanOrEqualTo` decorators plus `@Type`/`@Transform` for query-string coercion, on top of the usual `@ApiPropertyOptional`/`@IsOptional`/validator lines); `property-query.builder.ts`'s public half (177 lines added) has 13 independently-testable filter branches versus the admin builder's 5; and full TDD coverage across 3 new/extended production surfaces added 535 lines of test code (143 DTO + 140 validators + 252 query-builder extension), each filter/rule needing its own assertion to triangulate per the exhaustive scenario list in task 5a.5's own wording. **Recommendation**: treat PR 5a as `size:exception` under the `ask-on-risk` delivery strategy, consistent with PR 3a (821 lines), PR 3b (459 lines), and PR 4 (667 lines) — this slice is already the smallest cohesive unit for "public filters DTO + query builder" per `tasks.md`'s own Suggested Work Units table (the DTO and the builder that consumes it cannot be split further without leaving an intermediate commit where one doesn't compile against the other), and the orchestrator/user already accepted a 7-PR stacked chain with three other slices already carrying the same recommendation.
 
+## Completed Tasks — Phase 5b (7/7)
+
+- [x] 5b.1 RED `src/properties/helpers/public-property.mapper.spec.ts`
+- [x] 5b.2 GREEN `src/properties/helpers/public-property.mapper.ts` (`toPublicProperty`, `PublicPropertyResponse`)
+- [x] 5b.3 RED `src/properties/services/public-properties.service.spec.ts`
+- [x] 5b.4 GREEN `src/properties/services/public-properties.service.ts` (`PublicPropertiesService.findAll`, `.findBySlug`)
+- [x] 5b.5 RED `src/properties/controllers/public-properties.controller.spec.ts`
+- [x] 5b.6 GREEN `src/properties/controllers/public-properties.controller.ts` (+ wired into `src/properties/properties.module.ts`)
+- [x] 5b.7 Verify slice — all four gates green, plus an authorized end-to-end smoke test (see Verification Evidence and Smoke Test Evidence below)
+
+## TDD Cycle Evidence (Phase 5b)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 5b.1/5b.2 | `src/properties/helpers/public-property.mapper.spec.ts` | Unit (pure) | N/A (new) | ✅ Written first — failed with `TS2307: Cannot find module './public-property.mapper'` (confirmed via `npm test -- src/properties/helpers/public-property.mapper` before creating the implementation file) | ✅ 7/7 passed after implementing `toPublicProperty`/`PublicPropertyResponse` | ✅ 7 cases: address hidden when `showExactAddress=false`, address shown when `true` (the two-value triangulation for the privacy flag), internal fields (`publicationStatus`/`showExactAddress`/`createdAt`/`updatedAt`/`neighborhood.id`) absent, `services` grouping of the 5 booleans, numeric fields pass through as plain numbers, `publishedAt` mirrors a set `firstPublishedAt`, `publishedAt` is `null` when never published | ➖ None needed — single-pass explicit-whitelist object literal, no branching to simplify |
+| 5b.3/5b.4 | `src/properties/services/public-properties.service.spec.ts` | Unit (mocked repository + chainable query-builder mock, same shape as `PropertiesService.findAll`'s spec) | N/A (new) | ✅ Written first — failed with `TS2307: Cannot find module './public-properties.service'` (confirmed via `npm test -- src/properties/services/public-properties.service` before creating the implementation file) | ✅ 5/5 passed after implementing `PublicPropertiesService.findAll`/`.findBySlug` | ✅ 5 cases: `findAll` applies the forced-`published` clause + every spec clause/order/take/skip and returns `{ items: rows.map(toPublicProperty), total }`, `findAll` returns `{ items: [], total: 0 }` on no matches, `findBySlug` returns the mapped property scoped by `{ slug, publicationStatus: 'published' }`, `findBySlug` throws `NotFoundException` for a draft/archived slug, `findBySlug` throws `NotFoundException` for a nonexistent slug (the last two share one `findOne` mock behavior — `null` — proving the query-level restriction makes both cases indistinguishable to the caller, per `specs/property-public-catalog/spec.md`'s Public Property Detail by Slug requirement) | ➖ None needed — `findAll` mirrors `PropertiesService.findAll`'s already-established shape, `findBySlug` is a direct `findOne` + map + 404 |
+| 5b.5/5b.6 | `src/properties/controllers/public-properties.controller.spec.ts` | Unit (class metadata) | N/A (new) | ✅ Written first — failed with `TS2307: Cannot find module './public-properties.controller'` | ✅ 1/1 passed after implementing the controller with no `@Auth`/guard decorator anywhere | ➖ Single scenario — class carries no role/guard metadata at all, matching `NeighborhoodsController`'s public-`GET`-route precedent; the guard absence itself is proven by `Reflect.getMetadata` returning `undefined` for both `META_ROLES` and `__guards__` | ➖ None needed |
+
+### Test Summary (Phase 5b)
+- **Total tests written this batch**: 13 (7 mapper, 5 service, 1 controller)
+- **Total tests passing**: 13/13 (batch), **282/282 (full suite after this batch, up from 269)**
+- **Layers used**: Unit only — no integration/e2e harness exists in this project (`openspec/config.yaml`: `integration: false`, `e2e: false`), matching the Suggested Work Units table's "N/A — unit-only" note for unit 5b. This slice additionally received an authorized end-to-end smoke test against the throwaway `siricman-migtest` Postgres container (real HTTP + real DB, no mocks) — see Smoke Test Evidence below, which is a stronger proof of the full request/response cycle than any unit test could provide.
+- **Approval tests** (refactoring): None — no pre-existing behavior was changed. `buildPublicPropertyQuery` and its 27 existing tests, and `AdminPropertiesController`'s 2 existing metadata tests, re-run unchanged and green throughout; `src/properties/properties.module.ts` was modified additively (new controller + provider registered alongside the existing admin ones, nothing removed).
+- **Pure functions created**: 1 (`toPublicProperty`), triangulated with 7 cases covering every mapping rule from `design.md`'s `PublicPropertyResponse` contract (address privacy both flag values, internal-field omission, services grouping, numeric pass-through, `publishedAt` both defined and `null`).
+
+## Deviations from Design (Phase 5b)
+
+None — implementation matches `design.md`'s `PublicPropertyResponse` field list and mapping rules exactly (address privacy, omitted internal fields, `services` grouping, `publishedAt` = `firstPublishedAt`), `PublicPropertiesService.findAll`/`.findBySlug`'s data-flow description (spec applied to a joined query builder; 404 scoped by the `where` clause itself, not a post-fetch status check), and the public controller's route/guard shape (`@Controller('properties')`, no guards, `GET /` + `GET /:slug`) exactly. One implementation-level note not specified by name in `design.md`: `findBySlug` resolves both "slug doesn't exist" and "slug resolves to a draft/archived property" through the same `propertyRepository.findOne({ where: { slug, publicationStatus: 'published' } })` call rather than a two-step fetch-then-check — this was chosen because it is the same query-level-restriction pattern `buildPublicPropertyQuery` already uses for the listing endpoint (the spec's "restricted by the query itself" principle applied consistently to the detail endpoint too), and it means a caller cannot distinguish "never existed" from "exists but not published" from response content alone.
+
+## Work Unit Evidence (Phase 5b)
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `npm test -- src/properties/helpers/public-property.mapper src/properties/services/public-properties.service src/properties/controllers/public-properties.controller` → **3 suites, 13 tests, all passed** |
+| Runtime harness command/scenario and exact result | **Executed** — authorized end-to-end smoke test against `siricman-migtest` (127.0.0.1:55432): real Postgres rows, a real running Nest app, real HTTP requests. See Smoke Test Evidence below for the full scenario list and observed results, all matching expectations. |
+| Rollback boundary | Revert commit `a7f509f`: drops `src/properties/helpers/public-property.mapper.ts(+.spec)`, `src/properties/services/public-properties.service.ts(+.spec)`, `src/properties/controllers/public-properties.controller.ts(+.spec)`, and reverts the additive `PublicPropertiesController`/`PublicPropertiesService` registration in `properties.module.ts` back to the Phase 4 admin-only state. This is the only slice that exposes the unauthenticated `/api/properties` surface, so reverting it alone removes public read access without touching any admin CRUD/lifecycle route from Phases 3a/3b/4. No migration/schema change in this slice, so no DB rollback is needed. |
+
+## Smoke Test Evidence (Task 5b.7)
+
+Executed against `siricman-migtest` (127.0.0.1:55432, db `migtest`, all migrations already applied, 48 neighborhoods seeded). `properties` table was empty at the start of this batch (confirmed via `SELECT count(*) FROM properties` → `0`).
+
+**Fixtures inserted via direct SQL** (not through the app, since no authenticated admin session was set up for this smoke test — the public endpoints only need rows to exist):
+
+| Code | Slug | Status | Currency | Price | showExactAddress | Neighborhood |
+|---|---|---|---|---|---|---|
+| SP-101 | `depto-en-palermo-sp-101` | `published` | USD | 150000 | `false` | Palermo |
+| SP-102 | `casa-en-belgrano-sp-102` | `published` | ARS | 80000000 | `true` | Belgrano |
+| SP-103 | `ph-en-caballito-sp-103` | `draft` | USD | 900 | `false` | Caballito |
+
+App started via `node dist/main.js` (built by `npm run build` earlier in this batch) with inline env vars: `DB_HOST=127.0.0.1 DB_PORT=55432 DB_USER=postgres DB_PASSWORD=migtest DB_NAME=migtest RUN_SEED=false JWT_SECRET=<32+ char dummy> MFA_ENCRYPTION_KEY=<64-char hex dummy> SWAGGER_ENABLED=false PORT=3055`. No `.env` file created or read. App started cleanly (`Nest application successfully started`), mapping `PublicPropertiesController {/api/properties}` with `GET /api/properties` and `GET /api/properties/:slug`.
+
+| Request | Expected | Observed |
+|---|---|---|
+| `GET /api/properties` | 200, only the 2 published properties, draft excluded, address hidden for SP-101 / shown for SP-102 | **PASS** — `200`, `total: 2`, items = SP-102 (`address: "Av. Cabildo 2500"`) and SP-101 (`address: null`); SP-103 (draft) absent |
+| `GET /api/properties?currency=USD&sort=price_asc` | 200, only USD properties, ascending price | **PASS** — `200`, `total: 1`, only SP-101 (the only published USD property) |
+| `GET /api/properties?sort=price_asc` (no currency) | 400 | **PASS** — `400`, `{"message":["sort requires currency to be set"],"error":"Bad Request","statusCode":400}` |
+| `GET /api/properties/depto-en-palermo-sp-101` (published, `showExactAddress=false`) | 200, `address: null` | **PASS** — `200`, `address: null`, `neighborhood` still present (`Palermo`) |
+| `GET /api/properties/casa-en-belgrano-sp-102` (published, `showExactAddress=true`) | 200, exact `address` present | **PASS** — `200`, `address: "Av. Cabildo 2500"` |
+| `GET /api/properties/ph-en-caballito-sp-103` (draft) | 404 | **PASS** — `404`, `{"message":"Property not found","error":"Not Found","statusCode":404}` |
+| `GET /api/neighborhoods` | 200, existing 48-barrio catalog | **PASS** — `200`, list starting with Agronomía/Almagro/Balvanera, unaffected by this batch |
+
+App stopped afterward (`taskkill` on the `node dist/main.js` process listening on port 3055; confirmed down via a subsequent `curl` timing out with no response). The 3 inserted fixture rows were deleted (`DELETE FROM properties WHERE code IN ('SP-101','SP-102','SP-103')`); `SELECT count(*) FROM properties` confirmed `0` afterward, restoring the container to its pre-smoke-test state. No other container or database was touched. `property_code_seq` was not touched either (fixtures used explicit `code` values, not `nextval()`).
+
+## Verification Evidence (Task 5b.7)
+
+| Command | Observed result |
+|---|---|
+| `npm test` | **PASS** — 27 test suites, 282 tests, 0 failed. Exit code 0. |
+| `npm run lint` | **PASS** — `eslint "src/**/*.ts" --fix`, exit code 0, no reported errors. Prettier auto-reformatted line-wrapping in the new controller and the two new spec files (multi-line `@ApiOperation`/import formatting); re-ran `npm test` after the fix — still 27 suites, 282 tests, all green. |
+| `npx tsc -p tsconfig.build.json --noEmit` | **PASS** — no output, exit code 0. |
+| `npm run build` | **PASS** — `nest build`, no output, exit code 0. |
+
+## Files Changed (Phase 5b)
+
+| File | Action |
+|------|--------|
+| `src/properties/helpers/public-property.mapper.ts` (+ `.spec.ts`) | Created |
+| `src/properties/services/public-properties.service.ts` (+ `.spec.ts`) | Created |
+| `src/properties/controllers/public-properties.controller.ts` (+ `.spec.ts`) | Created |
+| `src/properties/properties.module.ts` | Modified (additive: registers `PublicPropertiesController` + `PublicPropertiesService` alongside the existing admin controller/service) |
+
+## Review Budget (Phase 5b)
+
+`git diff --stat feat/properties-5a-public-filters...HEAD -- . ':!openspec'` for this batch's implementation commit (`a7f509f`) against the tip of `feat/properties-5a-public-filters`: **574 insertions(+), 5 deletions(-)** across 7 files (579 total authored changed lines).
+
+This is **above** `tasks.md`'s own forecast for this slice (~280-330 lines) and **above** the session's 400-line review budget, by 249–299 lines relative to the forecast. No content was cut, compressed, or restyled to fit — per the apply skill's explicit instruction, the slice was implemented honestly and the overage is reported rather than iterated against. The main drivers: `public-properties.service.spec.ts` (190 lines) needed a full chainable-query-builder fixture plus a `propertyFixture()` helper mirroring every `Property` field (mapper and service specs each define their own fixture rather than sharing one, since they live in different directories and the codebase has no shared test-fixture module yet), and `public-property.mapper.spec.ts` (147 lines) needed one assertion block per mapping rule to triangulate the whitelist projection (7 cases, each verifying a distinct field-level guarantee from `design.md`'s contract). **Recommendation**: treat PR 5b as `size:exception` under the `ask-on-risk` delivery strategy, consistent with PR 3a (821 lines), PR 3b (459 lines), PR 4 (667 lines), and PR 5a (962 lines) — this is the smallest of the five oversized slices, already the smallest cohesive unit for "public mapper + service + controller" per `tasks.md`'s own Suggested Work Units table (the mapper, the service that calls it, and the controller that calls the service form one coherent, dependency-ordered unit that cannot be split without an intermediate commit exposing an incomplete public API), and it is the final slice of a 7-PR stacked chain the orchestrator/user already accepted.
+
 ## Open Items Carried Forward
 
 - Task 1.5 (manual barrio-spelling review) — already signed off in a prior batch (2026-09-27); not re-verified this batch.
 - ~~`neighborhoodId` changes via `PATCH` were silently ignored~~ — **RESOLVED** in the follow-up batch above (Phase 3a).
 - PR 3a's authored line count exceeds both `tasks.md`'s forecast and the 400-line review budget — flagged for a `size:exception` decision before/at review time; not re-splittable without breaking cohesion. Merge status as of this batch: unknown to the executor (session instructions state PR 3a is "already merged to main" as of Phase 4's start — see Scope of this batch above).
-- PR 3b's authored line count (459) also exceeds both `tasks.md`'s forecast (~220-260) and the 400-line review budget — flagged for the same `size:exception` decision; PR 3b was still open (not merged) as of this batch's start.
+- PR 3b's authored line count (459) also exceeds both `tasks.md`'s forecast (~220-260) and the 400-line review budget — flagged for the same `size:exception` decision; merge status as of this batch: unknown to the executor.
 - PR 4's authored line count (667) also exceeds both `tasks.md`'s forecast (~380-420) and the 400-line review budget — flagged for the same `size:exception` decision; see Phase 4's Review Budget above.
-- PR 5a's authored line count (962) also exceeds both `tasks.md`'s forecast (~380-420) and the 400-line review budget, by the widest margin yet — flagged for the same `size:exception` decision; see Review Budget above.
-- Phase 5b — NOT started.
-- The public `featured` filter, throttling of public endpoints, and the `dealStatus`/`operation` coupling remain open product decisions (see `tasks.md`'s Open Questions Carried Forward), unchanged by this batch.
+- PR 5a's authored line count (962) also exceeds both `tasks.md`'s forecast (~380-420) and the 400-line review budget, by the widest margin of any slice — flagged for the same `size:exception` decision; see Review Budget above.
+- PR 5b's authored line count (579) also exceeds both `tasks.md`'s forecast (~280-330) and the 400-line review budget — flagged for the same `size:exception` decision; see Review Budget above. This is the last of the 7 planned slices.
+- The public `featured` filter, throttling of public endpoints, and the `dealStatus`/`operation` coupling remain open product decisions (see `tasks.md`'s Open Questions Carried Forward) — not resolved by this change, unchanged by this batch.
 
 ## Next Step
 
-Phase 5a (tasks 5a.1–5a.7) is complete and verified (`npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build` all green: 24 suites, 269 tests). Ready for the next `sdd-apply` batch to start Phase 5b (Public Mapper, Service, Controller) — the final slice of this change — once PR 3b, PR 4, and PR 5a are reviewed/merged (or explicitly continued) per the `stacked-to-main` chain strategy. Per this batch's explicit scope (Phase 5a ONLY), Phase 5b was NOT started. PR 3b, PR 4, and PR 5a all carry a recommended `size:exception` (459, 667, and 962 authored lines respectively) awaiting the maintainer's decision, consistent with PR 3a's already-flagged overage.
+All 7 phases (1, 2, 3a, 3b, 4, 5a, 5b — every task in `tasks.md` except the
+open product-decision items under "Open Questions Carried Forward", which
+are explicitly out of scope for this change) are now complete and verified.
+`tasks.md` has every phase task marked `[x]`. Full suite: 27 test suites,
+282 tests, all green (`npm test`, `npm run lint`, `npx tsc --noEmit`,
+`npm run build` all pass); an authorized end-to-end smoke test against a
+real Postgres instance additionally confirmed the public catalog's HTTP
+behavior end to end. This `sdd-apply` work is done for the
+`properties-domain` change — ready for `sdd-verify` and/or `sdd-archive`.
+All 5 oversized slices (PR 3a: 821, PR 3b: 459, PR 4: 667, PR 5a: 962, PR
+5b: 579 authored lines) still carry an unresolved `size:exception`
+recommendation awaiting the maintainer's decision under `ask-on-risk`; none
+of that is blocking for apply completion, since the chain strategy
+(`stacked-to-main`) and the exception recommendation were already the
+accepted plan for this change.
