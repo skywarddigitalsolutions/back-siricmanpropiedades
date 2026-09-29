@@ -5,6 +5,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
+import type { Response } from 'express';
+import { loadMediaConfig } from './media/media.config';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -66,6 +68,24 @@ async function bootstrap() {
       .build();
     const document = SwaggerModule.createDocument(app, swaggerConfig);
     SwaggerModule.setup('docs', app, document);
+  }
+
+  // Local-development-only fallback for serving converted property images.
+  // In production, Caddy serves /media/* directly from the shared volume
+  // (see deploy/Caddyfile) and MEDIA_SERVE_STATIC is rejected; this path
+  // only exists so `npm run start:dev` can serve uploads without Caddy.
+  const mediaConfig = loadMediaConfig(configService);
+  if (mediaConfig.serveStatic) {
+    app.useStaticAssets(mediaConfig.root, {
+      prefix: '/media/',
+      index: false,
+      dotfiles: 'deny',
+      immutable: true,
+      maxAge: '365d',
+      setHeaders: (res: Response) => {
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      },
+    });
   }
 
   await app.listen(process.env.PORT ?? 3000);
