@@ -67,7 +67,10 @@ export class AdminPropertiesController {
     return this.propertiesService.findAll(filters);
   }
 
-  /** GET /api/admin/properties/:id - Obtener propiedad por id */
+  /**
+   * GET /api/admin/properties/:id - Obtener propiedad por id, incluyendo
+   * sus imágenes ordenadas por posición.
+   */
   @ApiOperation({ summary: 'Obtener una propiedad por id' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiResponse({ status: 200, description: 'Propiedad encontrada' })
@@ -77,7 +80,7 @@ export class AdminPropertiesController {
   })
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.propertiesService.findOne(id);
+    return this.propertiesService.findOneWithImages(id);
   }
 
   /** PATCH /api/admin/properties/:id - Actualizar campos editables */
