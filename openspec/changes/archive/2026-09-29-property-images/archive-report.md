@@ -149,3 +149,5 @@ All artifacts have been moved here and verified via `diff -r` against a pre-move
 **Status**: CLOSED (with known limitations documented above)  
 **Signed**: sdd-archive executor  
 **Date**: 2026-09-29
+
+**Resolved (2026-09-29):** the property-management MODIFIED requirements and the property-public-catalog ADDED requirements were merged into `openspec/specs/` manually by the orchestrator (MODIFIED blocks replaced by requirement name, ADDED blocks appended).
