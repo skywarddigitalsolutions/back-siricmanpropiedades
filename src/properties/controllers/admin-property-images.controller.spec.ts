@@ -20,11 +20,19 @@ function makeActor(): User {
 }
 
 describe('AdminPropertyImagesController', () => {
-  let service: { upload: jest.Mock };
+  let service: {
+    upload: jest.Mock;
+    reorder: jest.Mock;
+    delete: jest.Mock;
+  };
   let controller: AdminPropertyImagesController;
 
   beforeEach(() => {
-    service = { upload: jest.fn().mockResolvedValue({ id: 'img-1' }) };
+    service = {
+      upload: jest.fn().mockResolvedValue({ id: 'img-1' }),
+      reorder: jest.fn().mockResolvedValue([{ id: 'img-1' }]),
+      delete: jest.fn().mockResolvedValue(undefined),
+    };
     controller = new AdminPropertyImagesController(service as any);
   });
 
@@ -88,6 +96,61 @@ describe('AdminPropertyImagesController', () => {
     expect(service.upload).toHaveBeenCalledWith(propertyId, file, {
       id: 'user-1',
       userName: 'admin',
+    });
+  });
+
+  describe('PUT order', () => {
+    const propertyId = 'a0000000-0000-4000-8000-000000000001';
+
+    it('delegates to service.reorder(id, imageIds, actor)', async () => {
+      const imageIds = [
+        'a0000000-0000-4000-8000-000000000010',
+        'a0000000-0000-4000-8000-000000000011',
+      ];
+
+      await controller.reorder(propertyId, { imageIds }, makeActor());
+
+      expect(service.reorder).toHaveBeenCalledWith(propertyId, imageIds, {
+        id: 'user-1',
+        userName: 'admin',
+      });
+    });
+
+    it('keeps the global 20/min throttle — no @Throttle override on the handler', () => {
+      const limit = Reflect.getMetadata(
+        THROTTLER_LIMIT_DEFAULT,
+        AdminPropertyImagesController.prototype.reorder,
+      );
+
+      expect(limit).toBeUndefined();
+    });
+  });
+
+  describe('DELETE :imageId', () => {
+    const propertyId = 'a0000000-0000-4000-8000-000000000001';
+    const imageId = 'a0000000-0000-4000-8000-000000000099';
+
+    it('delegates to service.delete(id, imageId, actor)', async () => {
+      await controller.remove(propertyId, imageId, makeActor());
+
+      expect(service.delete).toHaveBeenCalledWith(propertyId, imageId, {
+        id: 'user-1',
+        userName: 'admin',
+      });
+    });
+
+    it('carries a 60/min throttle matching the upload route', () => {
+      const limit = Reflect.getMetadata(
+        THROTTLER_LIMIT_DEFAULT,
+        AdminPropertyImagesController.prototype.remove,
+      );
+      const ttl = Reflect.getMetadata(
+        THROTTLER_TTL_DEFAULT,
+        AdminPropertyImagesController.prototype.remove,
+      );
+
+      expect(limit).toBe(60);
+      expect(ttl).toBe(60_000);
     });
   });
 });
