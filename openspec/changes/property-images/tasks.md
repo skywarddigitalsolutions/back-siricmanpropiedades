@@ -1,0 +1,165 @@
+# Tasks: Property Images
+
+## Reconciliation Notes (read before implementing)
+
+`proposal.md`, `specs/**/spec.md`, and `design.md` were written in parallel. Before writing this task list, `design.md` was reconciled against the specs (specs win for external contract names) and edited in place:
+
+1. **Detail `coverImage` resolved**: the merged spec set leaves `property-public-catalog`'s detail requirement with only an `images` gallery (no `coverImage` field); listing items get `coverImage`. `design.md`'s "Decision: Response shapes" previously said detail also carries `coverImage` "for shape consistency" — that line was removed. **The cover is `images[0]` on detail; only listing items expose `coverImage`.**
+2. **`AuditLogService.record()` central fix**: `design.md`'s original "Decision: Audit calls wrapped locally" (a private `recordAudit()` try/catch inside `PropertyImagesService` only) has been replaced with a central fix: `AuditLogService.record()` itself now catches its own repository error, logs a warning, and never rejects. This closes the same pre-existing gap for every current and future caller (including `PropertiesService`'s existing unguarded `await record()` calls), not just image mutations. **No per-service audit try/catch wrapper is implemented for images** — see Phase 3, Task 3.1/3.2.
+3. **`MEDIA_ROOT` is the only storage-root env var name** used anywhere in this task list (supersedes the proposal's tentative `MEDIA_STORAGE_DIR`); `design.md` already used this name consistently.
+4. **`.env.example` does not currently exist** in this repository (only `deploy/env.production.example` does). `design.md`'s File Changes table lists it as "Modify"; this task list creates it instead, scoped tightly to the three new `MEDIA_*` vars (see Task 2.18) to avoid unrelated scope creep.
+5. **No `OneToMany` relation added to `Property`**, even though `proposal.md`'s Affected Areas table listed `property.entity.ts` as "Modified" for an images relation. `design.md`'s "Decision: No inverse `OneToMany` relation on `Property`" explicitly rejects this (TypeORM `save()` corruption risk on existing mutation paths). This task list follows `design.md`: `property.entity.ts` is **not** touched.
+
+## Review Workload Forecast
+
+| Field | Value |
+|-------|-------|
+| Estimated changed lines | ~1,800–2,000 (tests included, lockfile excluded) |
+| 400-line budget risk | High (overall); Low–Medium per slice |
+| Chained PRs recommended | Yes |
+| Suggested split | PR 1 → PR 2 → PR 3 → PR 4 → PR 5 → PR 6 (one per phase below) |
+| Delivery strategy | auto-chain |
+| Chain strategy | stacked-to-main (already chosen — see SDD preflight) |
+
+Decision needed before apply: No
+Chained PRs recommended: Yes
+Chain strategy: stacked-to-main
+400-line budget risk: High
+
+### Suggested Work Units
+
+| Unit | Goal | Likely PR | Focused test command | Runtime harness | Rollback boundary |
+|------|------|-----------|----------------------|-----------------|-------------------|
+| 1 | Infra: media volume, Caddy route, env example, runbook (inert, no code behavior) | PR 1 | `npm test` (no `.ts` changes expected; confirms no regression) | N/A — infra-only, no app code path exercises it yet; runbook step 4 (`curl -I .../media/...`) is the eventual harness, run only after the user applies it server-side | Revert PR 1 alone: volume/route/env stay unused until PR 2+ ships; safe to apply on the server ahead of time per the runbook |
+| 2 | Media core: `sharp`, `StoragePort`/`LocalDiskStorage`, `ImageProcessor`/`SharpImageProcessor`, `Semaphore`, `MediaUrlBuilder`, `MediaModule`, dev static serving | PR 2 | `npx jest media media-url semaphore` | `npm run start:dev` with `MEDIA_SERVE_STATIC=true`, manually drop a file under `storage/media/` and `curl http://localhost:3000/media/<file>` | Revert PR 2 alone: `MediaModule` is not yet imported by `PropertiesModule`, so nothing else depends on it |
+| 3 | Schema + persistence: `PropertyImage` entity, migration, `PropertyImagesRepository`, key builder, image mappers, audit enum values, **central `AuditLogService.record()` fix** | PR 3 | `npx jest property-images.repository property-image-keys property-image.mapper audit-log.service` | Manual DB check against throwaway Postgres — see Task 3.13 | Revert PR 3 + `npm run migration:revert`: no controller routes exist yet, so no external behavior regresses; `AuditLogService` fix is additive (never-throws is strictly safer) |
+| 4 | Upload: `PropertyImagesService.upload`, `AdminPropertyImagesController` POST, throttle, multer limits | PR 4 | `npx jest property-images.service admin-property-images.controller` | Manual curl upload against local dev server + Postgres — see Task 4.7 | Revert PR 4 alone: PR 3's schema is inert without an upload path; no other route depends on the controller yet |
+| 5 | Reorder + delete + admin `findOne` with images + hard-delete file cleanup | PR 5 | `npx jest property-images.service admin-property-images.controller properties.service admin-properties.controller` | Manual curl reorder/delete + hard-delete against local dev server + Postgres — see Task 5.15 | Revert PR 5 alone: admin `GET :id` falls back to plain `findOne` (still exists, untouched); upload (PR 4) keeps working without reorder/delete |
+| 6 | Public catalog: `coverImage` (listing), `images` (detail) | PR 6 | `npx jest public-property.mapper public-properties.service` | Manual curl of public listing/detail endpoints — see Task 6.6 | Revert PR 6 alone: purely additive response fields; front-end (out of scope) has not wired to them yet |
+
+Each unit's Focused test command is a scoped subset of `npm test` (jest's default test-name/path matching); the full `npm test` in each phase's Verification task is the actual gate before merge.
+
+---
+
+## Phase 1: Infra First (PR 1, ~150 lines)
+
+No TDD tasks — this slice changes no `.ts` file. Safe to apply on the server ahead of any code deploy (see Task 1.7).
+
+- [ ] 1.1 Modify `Dockerfile`: in the `runner` stage, add `RUN mkdir -p /app/storage/media && chown -R node:node /app/storage` immediately before `USER node`, so a fresh named volume mounted at `/app/storage/media` inherits writable ownership.
+- [ ] 1.2 Modify `deploy/compose.yml`: add a named volume `media_data`; mount it read-write at `/app/storage/media` on the `api` service and read-only at `/srv/media` on the `caddy` service; add `MEDIA_ROOT: /app/storage/media` to the `api` service's `environment`; add the top-level `volumes: media_data:` entry.
+- [ ] 1.3 Modify `deploy/Caddyfile`: in the `{$API_DOMAIN}` block, add `request_body { max_size 16MB }` and a `handle_path /media/*` block (webp-only via `@notWebp not path *.webp` → `respond @notWebp 404`, `root * /srv/media`, `file_server`, immutable `Cache-Control` header only on `@exists`, `X-Content-Type-Options: nosniff`, no directory browsing) placed before the fallback `handle { reverse_proxy api:3000 }`, exactly as written in `design.md`'s Interfaces / Contracts section.
+- [ ] 1.4 Modify `deploy/env.production.example`: add `MEDIA_PUBLIC_BASE_URL=https://api.<dominio>/media` (no trailing slash) with the explanatory comment from `design.md` ("the API does not start in production if this is missing").
+- [ ] 1.5 Modify `deploy/README.md`: append the "## 6. Fotos de propiedades (volumen de medios)" section verbatim from `design.md` (Spanish, neutral register, server-side steps + verification + space-check + backup caveat), and add a one-line cross-reference to it from the existing section 4.
+- [ ] 1.6 Modify `.gitignore`: add `/storage` (local dev media root, mirrors the container's `/app/storage/media`; must never be committed).
+- [ ] 1.7 Note-only, no code change: this slice is inert (empty volume, Caddy returns 404 under `/media/*`, unused env var). Tell the user explicitly that **section 6 of `deploy/README.md` must be applied on the server (copy `compose.yml`/`Caddyfile`, add the `.env` var, `docker compose up -d`) before deploying Phase 2 or later** — Phase 2 adds a boot-time writability check and, in production, a required `MEDIA_PUBLIC_BASE_URL`; skipping this step would crash the API on deploy or write uploads into the container layer (lost on recreate).
+- [ ] 1.8 Verification: run `npm test && npm run lint && npx tsc -p tsconfig.build.json --noEmit && npm run build`; expect identical results to the pre-change baseline (no `.ts` file changed in this phase).
+
+---
+
+## Phase 2: Media Core (PR 2, ~390 lines)
+
+Depends on: Phase 1 merged (not code-dependent, but stacked per the chosen chain strategy). Independent of Phases 3–6 except that Phase 3 imports `MediaModule`.
+
+- [ ] 2.1 Add `sharp` to `package.json` dependencies (`npm install sharp`). Verify `package-lock.json` includes `@img/sharp-linuxmusl-x64` (the Alpine/musl target used by `Dockerfile`) in addition to whatever platform binary was resolved locally — this is the CI Docker-build gate called out in `proposal.md`'s Risks table.
+- [ ] 2.2 Add `@types/multer` to `package.json` devDependencies (`npm install -D @types/multer`), needed for the `Express.Multer.File` type used from Phase 4 onward.
+- [ ] 2.3 RED — `src/common/utils/semaphore.spec.ts`: write failing tests for a minimal async counting `Semaphore` — `run(fn)` queues work beyond the configured concurrency limit and runs it once a slot frees, a slot is released after a resolved run, and a slot is released after a rejected run (rejection propagates to the caller, does not leak the slot).
+- [ ] 2.4 GREEN — `src/common/utils/semaphore.ts`: implement `Semaphore` to satisfy 2.3.
+- [ ] 2.5 RED — `src/media/media.config.spec.ts`: write failing tests for `loadMediaConfig(config: ConfigService)` — resolves `MEDIA_ROOT` to an absolute path by default; non-production default `MEDIA_PUBLIC_BASE_URL` is `http://localhost:${PORT ?? 3000}/media`; `MEDIA_SERVE_STATIC` defaults to `false`; a trailing slash on `MEDIA_PUBLIC_BASE_URL` is trimmed; throws when `NODE_ENV=production` and `MEDIA_PUBLIC_BASE_URL` is missing or not `https:`; throws on an invalid `MEDIA_SERVE_STATIC` value (anything other than `'true'`/`'false'`/unset); throws when `MEDIA_SERVE_STATIC=true` and `NODE_ENV=production`.
+- [ ] 2.6 GREEN — `src/media/media.config.ts`: implement `MediaConfig` type, `MEDIA_CONFIG` token, and `loadMediaConfig()` to satisfy 2.5.
+- [ ] 2.7 Create `src/media/storage/storage.port.ts`: `StoragePort` interface (`put`, `delete`, `deletePrefix`) and `STORAGE_PORT` token — no dedicated spec (pure interface, no behavior; exercised through 2.8/2.9).
+- [ ] 2.8 RED — `src/media/storage/local-disk.storage.spec.ts`: write failing tests using a real temp dir (`fs.mkdtemp(os.tmpdir())`, removed in `afterEach`) — `put` creates parent directories and writes the exact content with no leftover temp files; `delete` is idempotent (a missing file, i.e. `ENOENT`, is success); `deletePrefix` removes only that property's directory and is idempotent; key validation rejects `../`, absolute paths, and any key not matching `^[a-z0-9][a-z0-9/_-]*(\.webp)?$`; `deletePrefix` rejects a prefix with fewer than two path segments; `onModuleInit` throws when the configured root is unwritable (point it at a path nested under a regular file, to keep the test OS-independent on Windows).
+- [ ] 2.9 GREEN — `src/media/storage/local-disk.storage.ts`: implement `LocalDiskStorage` to satisfy 2.8 (atomic `put` via temp file + `rename`, file mode `0o644`, dir mode `0o755`, traversal guard, boot-time writability probe).
+- [ ] 2.10 Create `src/media/images/image-processor.port.ts`: `ImageProcessor` interface, `Rendition`/`ProcessedImage` types, `IMAGE_PROCESSOR` token — no dedicated spec.
+- [ ] 2.11 Create `src/media/images/image-processing.errors.ts`: framework-free `InvalidImageError`, `UnsupportedImageFormatError`, `ImageTooLargeError` — no dedicated spec; exercised through 2.12/2.13.
+- [ ] 2.12 RED — `src/media/images/sharp-image.processor.spec.ts`: write failing tests using in-test `sharp({ create })` fixtures (no binary fixtures committed to the repo) — a 2400×1200 synthetic JPEG with `withMetadata({ orientation: 6 })` produces an upright `large` (max width 1920) and `thumb` (max width 480) rendition with dimensions reflecting the applied rotation, and neither rendition's `metadata()` contains `exif` or `icc`; a 300 px-wide PNG is not upscaled (both renditions stay 300 px wide); a WebP input is accepted; a valid GIF throws `UnsupportedImageFormatError`; random bytes throw `InvalidImageError`; an image whose pixel count exceeds an injected small `limitInputPixels` throws `ImageTooLargeError`.
+- [ ] 2.13 GREEN — `src/media/images/sharp-image.processor.ts`: implement `SharpImageProcessor` to satisfy 2.12 (`sharp.concurrency(1)`, `sharp.cache(false)`, wraps `process()` in the `Semaphore(2)` from 2.4, `limitInputPixels: 50_000_000`, `.rotate()` for auto-orient, parallel `large`/`thumb` WebP encode at quality 80/75, `withoutEnlargement: true`, constants constructor-injectable for tests).
+- [ ] 2.14 RED — `src/media/media-url.builder.spec.ts`: write failing tests for `MediaUrlBuilder.toUrl(key)` — joins the configured public base URL and the key with exactly one `/`, regardless of whether the configured base URL already had its trailing slash trimmed by `loadMediaConfig`.
+- [ ] 2.15 GREEN — `src/media/media-url.builder.ts`: implement `MediaUrlBuilder` to satisfy 2.14.
+- [ ] 2.16 Create `src/media/media.module.ts`: `@Module` providing/exporting `MEDIA_CONFIG` (via a `loadMediaConfig` factory), `STORAGE_PORT` → `LocalDiskStorage`, `IMAGE_PROCESSOR` → `SharpImageProcessor`, `MediaUrlBuilder` — no dedicated spec (DI wiring only; exercised indirectly once `PropertiesModule` imports it in Phase 4).
+- [ ] 2.17 Modify `src/main.ts`: when `configService.get('MEDIA_SERVE_STATIC') === 'true'`, call `app.useStaticAssets(mediaRoot, { prefix: '/media/', index: false, dotfiles: 'deny', immutable: true, maxAge: '365d', setHeaders: (res) => res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin') })`, with `mediaRoot` resolved from `loadMediaConfig` — no dedicated spec (bootstrap wiring; the project has no existing `main.ts` spec to extend).
+- [ ] 2.18 Create `.env.example` at the repo root (it does not currently exist — only `deploy/env.production.example` does). Scope it tightly to this change: `MEDIA_ROOT`, `MEDIA_PUBLIC_BASE_URL=http://localhost:3000/media`, `MEDIA_SERVE_STATIC=true`, each with a one-line comment, plus a header comment noting this file intentionally does not attempt to backfill the rest of the app's existing env surface.
+- [ ] 2.19 Verification: run `npm test && npm run lint && npx tsc -p tsconfig.build.json --noEmit && npm run build`.
+
+---
+
+## Phase 3: Schema + Persistence (PR 3, ~330–370 lines)
+
+Depends on: Phase 2 merged (`MediaUrlBuilder` used by the mapper). Includes the orchestrator-requested central `AuditLogService` fix (Tasks 3.1–3.2), placed here because this is the earliest slice that touches `src/audit/**`.
+
+- [ ] 3.1 RED — extend `src/audit/audit-log.service.spec.ts`: add a failing test asserting `record()` resolves (does not throw/reject) when `auditLogRepository.save()` rejects, and that a warning is logged (spy on `Logger.prototype.warn`, or an injected `Logger`, matching this codebase's existing logging convention) including the entity type, entity id, and action of the failed entry. Confirm the two existing `record`/`findAll` describe blocks still pass unmodified.
+- [ ] 3.2 GREEN — `src/audit/audit-log.service.ts`: wrap the `auditLogRepository.save(log)` call in `try/catch`, log a warning on failure via `Logger`, and never reject — satisfies 3.1. This is the central fix: `PropertiesService`'s existing unguarded `await record()` calls (and every future caller) become safe with this one change, per `design.md`'s "Decision: `AuditLogService.record()` itself catches and logs errors".
+- [ ] 3.3 Modify `src/audit/enums/audit-action.enum.ts`: add `PROPERTY_IMAGE_UPLOADED = 'property.image_uploaded'`, `PROPERTY_IMAGE_REORDERED = 'property.image_reordered'`, `PROPERTY_IMAGE_DELETED = 'property.image_deleted'` (all ≤ 50 chars, matches `audit_logs.action varchar(50)`) — no dedicated spec (enum literals; exercised by Phase 4/5 service specs).
+- [ ] 3.4 Create `src/properties/entities/property-image.entity.ts`: `PropertyImage` entity per `design.md`'s Interfaces / Contracts table (`@PrimaryColumn('uuid') id`, `@ManyToOne(() => Property, { onDelete: 'CASCADE' })` plus an explicit `@Column() propertyId`, `position: smallint`, `largeKey`, `thumbKey`, `width`, `height`, `thumbWidth`, `thumbHeight`, `largeBytes`, `thumbBytes`, `createdAt`). Do **not** add an inverse `images` relation on `Property` (see Reconciliation Note 5) — no dedicated spec (declarative entity; exercised through the repository spec).
+- [ ] 3.5 Create `src/migrations/1790500000002-CreatePropertyImages.ts`: `up()`/`down()` migration creating `property_images` exactly per the SQL in `design.md` (PK `id`, FK `property_id` → `properties(id)` `ON DELETE CASCADE`, `CHECK (position >= 0)`, `UNIQUE (property_id, position) DEFERRABLE INITIALLY IMMEDIATE`); `down()` drops the table. Never edit the existing InitSchema or CreateProperties migrations. No dedicated spec (migrations are not unit-tested in this repo — verified manually in Task 3.13).
+- [ ] 3.6 RED — `src/properties/images/property-image-keys.spec.ts`: write failing tests for `buildPropertyImageKeys(propertyId, imageId)` (returns the exact `properties/{propertyId}/{imageId}-lg.webp` / `-thumb.webp` pair) and `propertyMediaPrefix(propertyId)` (returns `properties/{propertyId}/`).
+- [ ] 3.7 GREEN — `src/properties/images/property-image-keys.ts`: implement to satisfy 3.6.
+- [ ] 3.8 RED — `src/properties/images/property-images.repository.spec.ts`: write failing tests with a mocked `DataSource.transaction(cb)` and a fake `EntityManager` (`query`, `getRepository`) — `propertyExists`/`countByProperty` read correctly; `insertAppended` locks the property row first (`SELECT ... FOR UPDATE`) before any count/insert, rejects with `PropertyNotFoundError` when the lock finds nothing, rejects with `ImageCapExceededError` when `count >= 30`, otherwise inserts at `position = count`; `reorder` locks first, rejects with `NotAPermutationError` on any non-exact-permutation input (wrong length, duplicate id, foreign id, missing id), is a no-op (no `UPDATE` issued) when the submitted order equals the current order, otherwise issues exactly one `UPDATE ... FROM unnest($1::uuid[]) WITH ORDINALITY` with the documented params; `deleteAndCompact` locks first, returns `null` when the image id does not belong to that property, otherwise deletes the row and issues exactly one compaction `UPDATE ... WHERE position > $2`; `findByPropertyId`/`findCoversByPropertyIds` query with the documented `WHERE` clauses and ordering.
+- [ ] 3.9 GREEN — `src/properties/images/property-images.repository.ts`: implement `PropertyImagesRepository` and the `PropertyNotFoundError`/`ImageCapExceededError`/`NotAPermutationError` plain-error classes to satisfy 3.8, per `design.md`'s Interfaces / Contracts.
+- [ ] 3.10 RED — `src/properties/helpers/property-image.mapper.spec.ts`: write failing tests for the admin (`PropertyImageResponse`) and public (`PublicPropertyImage`) projections — never output `largeKey`/`thumbKey`/`MEDIA_ROOT`/any filesystem path in either shape; the admin shape includes `id`, `position`, `createdAt`; the public shape omits `id` and `position` (order is array order, per the resolved spec).
+- [ ] 3.11 GREEN — `src/properties/helpers/property-image.mapper.ts`: implement to satisfy 3.10, using `MediaUrlBuilder` from Phase 2.
+- [ ] 3.12 Verification: run `npm test && npm run lint && npx tsc -p tsconfig.build.json --noEmit && npm run build`.
+- [ ] 3.13 Manual DB check (throwaway Postgres — no automated test exists for this layer in this repo): `npm run db:up` (starts the local `db` service from the root `docker-compose.yml` (read-only) ), then `npm run migration:run`. Using `psql`, verify: (a) the `property_images` table, its `CHECK`, its `UNIQUE ... DEFERRABLE INITIALLY IMMEDIATE` constraint, and the cascading FK exist exactly as written; (b) insert 3 rows at positions 0–2 for a scratch property id, then inside one transaction run the exact `UPDATE ... FROM unnest($1::uuid[]) WITH ORDINALITY` reorder statement from `design.md` with a full permutation and confirm it commits without a mid-statement unique violation (this is the deferrable-constraint behavior the design relies on); (c) attempt the same statement with a duplicate target position and confirm Postgres rejects it (at commit, per `DEFERRABLE INITIALLY IMMEDIATE` semantics — it still fails, just not mid-statement); (d) delete the scratch property row directly and confirm its `property_images` rows are cascade-deleted. Record the observed `psql` output in the PR description. Then `npm run migration:revert` and `npm run db:down`.
+
+---
+
+## Phase 4: Upload (PR 4, ~340 lines)
+
+Depends on: Phase 3 merged (entity, repository, mappers, audit actions).
+
+- [ ] 4.1 RED — `src/properties/images/property-images.service.spec.ts` (upload only): write failing tests with a fake `PropertyImagesRepository`, an in-memory fake `StoragePort` (with failure injection per key), a fake `ImageProcessor`, and a mocked `AuditLogService` — happy path returns the mapped response and calls `record()` with `PROPERTY_IMAGE_UPLOADED`, entity type `property`, the property id, and `{ imageId, position, largeBytes, thumbBytes }`; a nonexistent property surfaces as `NotFoundException`; the cap pre-check (`count >= 30`) short-circuits before the processor is ever invoked; a processor error surfaces as `BadRequestException` and writes nothing to storage; a failure on the second `put()` deletes the first key before rethrowing; an `insertAppended` failure deletes both keys before rethrowing; a rejecting mocked `AuditLogService.record()` still results in the successful response (defensive assertion at this call site, even though `AuditLogService` itself no longer rejects after Phase 3).
+- [ ] 4.2 GREEN — `src/properties/images/property-images.service.ts`: implement the `upload()` method per the orchestration order in `design.md` (pre-check → `ImageProcessor.process()` → `put()` both renditions → locked insert → compensation on failure → `auditLogService.record()` (no local wrapper) → map response) to satisfy 4.1.
+- [ ] 4.3 RED — `src/properties/controllers/admin-property-images.controller.spec.ts` (POST only): write failing tests with a fake `PropertyImagesService` — a missing `file` part returns `400`; the handler delegates to `service.upload(propertyId, file, actor)`; the exported `IMAGE_UPLOAD_LIMITS` constant equals `{ fileSize: 15 * 1024 * 1024, files: 1, fields: 0, parts: 1 }`; guard metadata via `Reflect.getMetadata` mirrors the class-level `@Auth(ValidRoles.admin, ValidRoles.manager)` used by the existing admin properties controller (no extra per-method guard); the POST handler carries `@Throttle({ default: { limit: 60, ttl: 60_000 } })` metadata.
+- [ ] 4.4 GREEN — `src/properties/controllers/admin-property-images.controller.ts`: implement `AdminPropertyImagesController` with `@Controller('admin/properties/:id/images')`, class-level `@Auth(ValidRoles.admin, ValidRoles.manager)`, the `POST` handler using `@UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: IMAGE_UPLOAD_LIMITS }))` and `ParseUUIDPipe` on `:id`, returning `201`, to satisfy 4.3.
+- [ ] 4.5 Modify `src/properties/properties.module.ts`: import `MediaModule`; add `PropertyImage` to `TypeOrmModule.forFeature([...])`; register `PropertyImagesRepository`, `PropertyImagesService`, and `AdminPropertyImagesController` — no dedicated spec (DI wiring; exercised by the controller/service specs plus the build/tsc check).
+- [ ] 4.6 Verification: run `npm test && npm run lint && npx tsc -p tsconfig.build.json --noEmit && npm run build`.
+- [ ] 4.7 Manual harness check (no multer/HTTP integration layer exists in this repo): `npm run db:up`, `npm run migration:run`, `npm run start:dev`; obtain an admin JWT via the existing seeded admin + MFA login flow; `curl -F "file=@<file-over-15mb>" .../admin/properties/<id>/images` and confirm `413`; `curl -F "file=@<valid-small.jpg>" ...` and confirm `201` with `large`/`thumb` URLs; with `MEDIA_SERVE_STATIC=true`, `curl` the returned thumbnail URL directly and confirm it serves the converted WebP file. Record the observed status codes and response body. `npm run db:down` when done.
+
+---
+
+## Phase 5: Reorder + Delete + Admin `findOne` + Hard-Delete Cleanup (PR 5, ~380 lines)
+
+Depends on: Phase 4 merged (extends the same service/controller files).
+
+- [ ] 5.1 RED — `src/properties/dto/reorder-property-images.dto.spec.ts`: write failing `validate()` tests — rejects a non-array, an empty array (`ArrayMinSize(1)`), more than 30 entries (`ArrayMaxSize(30)`), a duplicated entry (`ArrayUnique()`), a non-UUID entry (`IsUUID('4', { each: true })`); accepts a valid array of UUIDs.
+- [ ] 5.2 GREEN — `src/properties/dto/reorder-property-images.dto.ts`: implement `ReorderPropertyImagesDto` to satisfy 5.1.
+- [ ] 5.3 Modify `src/properties/dto/index.ts`: export `ReorderPropertyImagesDto` — no dedicated spec (barrel export).
+- [ ] 5.4 RED — extend `src/properties/images/property-images.service.spec.ts` with reorder tests: an exact-permutation submission rewrites positions to the submitted order's index and calls `record()` with `PROPERTY_IMAGE_REORDERED` and `{ imageIds }` (new order); a submission identical to the current order is a no-op (no repository write call, no audit call); any non-permutation input (wrong length, duplicate, foreign id, missing id) surfaces as `BadRequestException` with no position change asserted against the fake repository.
+- [ ] 5.5 GREEN — extend `src/properties/images/property-images.service.ts` with `reorder()` to satisfy 5.4.
+- [ ] 5.6 RED — extend `src/properties/images/property-images.service.spec.ts` with delete tests: happy path removes the row, compacts positions, deletes both files via `StoragePort`, and calls `record()` with `PROPERTY_IMAGE_DELETED` and `{ imageId, position }`; deleting an image id belonging to a different property surfaces as `NotFoundException`; a `StoragePort.delete()` failure is logged (spy on `Logger.warn`) and does **not** throw — the delete still succeeds since the row deletion already committed.
+- [ ] 5.7 GREEN — extend `src/properties/images/property-images.service.ts` with `delete()` to satisfy 5.6.
+- [ ] 5.8 RED — extend `src/properties/controllers/admin-property-images.controller.spec.ts` with `PUT order` and `DELETE :imageId` tests: both delegate to `service.reorder`/`service.delete`; `PUT order` keeps the global 20/min throttle (no `@Throttle` override present on that handler); `DELETE` carries `@Throttle({ default: { limit: 60, ttl: 60_000 } })`, matching the upload route; `:imageId` uses `ParseUUIDPipe`; `DELETE` returns `204`.
+- [ ] 5.9 GREEN — extend `src/properties/controllers/admin-property-images.controller.ts` with the `PUT order` and `DELETE :imageId` handlers to satisfy 5.8.
+- [ ] 5.10 RED — extend `src/properties/services/properties.service.spec.ts`: hard-delete `remove()` calls `storagePort.deletePrefix('properties/{id}/')` after the row `delete()` succeeds, and a `deletePrefix()` failure is logged but does not fail the request; a new `findOneWithImages(id)` method returns the property plus its images ordered ascending by `position` with `large`/`thumb` URLs, and throws `NotFoundException` when the property does not exist; a regression test confirms the existing unguarded `findOne()` (used by every mutation path) is unchanged — no images relation loaded, no extra query.
+- [ ] 5.11 GREEN — `src/properties/services/properties.service.ts`: inject `STORAGE_PORT`, `PropertyImagesRepository`, `MediaUrlBuilder`; implement the `remove()` change and `findOneWithImages()` to satisfy 5.10.
+- [ ] 5.12 RED — extend `src/properties/controllers/admin-properties.controller.spec.ts`: `GET :id` now delegates to `service.findOneWithImages(id)` instead of `service.findOne(id)`.
+- [ ] 5.13 GREEN — `src/properties/controllers/admin-properties.controller.ts`: wire `GET :id` to `findOneWithImages` to satisfy 5.12.
+- [ ] 5.14 Verification: run `npm test && npm run lint && npx tsc -p tsconfig.build.json --noEmit && npm run build`.
+- [ ] 5.15 Manual DB check (throwaway Postgres): `npm run db:up`, `npm run migration:run`, `npm run start:dev`. Through the running API, upload 3 images to a scratch property (reusing the Phase 4 admin JWT), then `curl` a reorder request and a single-image delete request; via `psql` verify positions stay `0..n-1` and the deferrable unique constraint does not block the full-permutation reorder. Hard-delete a never-published scratch property and verify via `psql` that its `property_images` rows are gone (cascade) and, on disk, that the files previously under `storage/media/properties/<id>/` (read-only inspection target) were removed. Record observed output. `npm run migration:revert` then `npm run db:down`.
+
+---
+
+## Phase 6: Public Catalog (PR 6, ~200 lines)
+
+Depends on: Phase 5 merged (uses `findByPropertyId`/`findCoversByPropertyIds` from Phase 3's repository against real image data end-to-end, though it could technically be built against Phase 3 alone — sequenced last per `design.md`'s slice order).
+
+- [ ] 6.1 RED — extend `src/properties/helpers/public-property.mapper.spec.ts`: the listing projection includes `coverImage: { url, width, height } | null` (thumbnail rendition of position 0, `null` when the property has no images); the detail projection includes `images: PublicPropertyImage[]` ordered ascending by position and does **not** include a separate `coverImage` field (per Reconciliation Note 1 — the cover is `images[0]`); neither projection ever outputs a storage key or filesystem path.
+- [ ] 6.2 GREEN — `src/properties/helpers/public-property.mapper.ts`: implement `toPublicPropertyListItem`/`toPublicPropertyDetail` (or the shared-base-projection + flag approach from `design.md`) to satisfy 6.1.
+- [ ] 6.3 RED — extend `src/properties/services/public-properties.service.spec.ts`: `findAll` (listing) calls `propertyImagesRepository.findCoversByPropertyIds(ids)` exactly once per page, after the existing paginated query executes unchanged; an empty page of results skips the cover query entirely; `total` and the per-page item count are unaffected. `findBySlug` (detail) calls `propertyImagesRepository.findByPropertyId(property.id)` and passes the ordered gallery into the mapper.
+- [ ] 6.4 GREEN — `src/properties/services/public-properties.service.ts`: implement per 6.3, injecting `PropertyImagesRepository` and `MediaUrlBuilder`.
+- [ ] 6.5 Verification: run `npm test && npm run lint && npx tsc -p tsconfig.build.json --noEmit && npm run build`.
+- [ ] 6.6 Manual smoke check (no e2e layer in this repo): reusing the scratch property from Task 5.15 (recreate it if it was hard-deleted; publish it first since the public catalog only returns published properties), `curl` the public listing endpoint and the public detail endpoint. Visually confirm `coverImage` is present on the listing item, `images` (ordered, no `coverImage`) is present on the detail response, and neither payload contains `largeKey`, `thumbKey`, or any filesystem path.
+
+---
+
+## Dependency Summary
+
+Sequential (each phase's files depend on the previous phase's exports): 1 → 2 → 3 → 4 → 5 → 6.
+
+- Phase 1 is code-independent of every other phase (infra only); it is sequenced first only because Phase 2+ requires the writable volume/env var to exist in production before deploy, not because of a compile-time dependency. It could technically be merged/deployed in parallel with Phase 2's development.
+- Within each phase, RED/GREEN pairs for different files (e.g., 2.3/2.4 `Semaphore` vs. 2.5/2.6 `media.config`) are independent of each other and could be done in either order or by different sessions; they are listed in the order they are consumed by later files in the same phase (`SharpImageProcessor` needs `Semaphore` first).
+- Task 3.1/3.2 (`AuditLogService` central fix) has no dependency on 3.3–3.11 and could be delivered as its own tiny PR ahead of Phase 3 if the user prefers an even smaller slice; it is kept inside Phase 3 per the orchestrator's instruction to place it "in the earliest slice where it fits."
+- Manual DB-check tasks (3.13, 5.15) and manual harness checks (4.7, 6.6) are not parallelizable with their phase's automated verification task — they run against the code that verification task just confirmed compiles and passes `npm test`.
+
+## Next Step
+
+Ready for implementation (`sdd-apply`), starting with Phase 1.
