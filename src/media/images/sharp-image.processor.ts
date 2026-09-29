@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { Semaphore } from '../../common/utils/semaphore';
 import {
   ImageProcessor,
@@ -77,7 +77,7 @@ export class SharpImageProcessor implements ImageProcessor {
   private readonly options: SharpImageProcessorOptions;
   private readonly semaphore: Semaphore;
 
-  constructor(options: Partial<SharpImageProcessorOptions> = {}) {
+  constructor(@Optional() options?: Partial<SharpImageProcessorOptions>) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
     this.semaphore = new Semaphore(this.options.concurrency);
     sharp.concurrency(1);
