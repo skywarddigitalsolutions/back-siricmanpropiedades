@@ -4,8 +4,9 @@
 
 Phase 1 (infra slice, PR 1, tasks 1.1–1.8), Phase 2 (media core slice,
 PR 2, tasks 2.1–2.19), Phase 3 (schema + persistence + central
-`AuditLogService` fix, PR 3, tasks 3.1–3.13), and Phase 4 (upload slice,
-PR 4, tasks 4.1–4.7). Phases 5–6 are not started.
+`AuditLogService` fix, PR 3, tasks 3.1–3.13), Phase 4 (upload slice,
+PR 4, tasks 4.1–4.7), and Phase 5 (reorder + delete + admin `findOne` +
+hard-delete cleanup, PR 5, tasks 5.1–5.15). Phase 6 is not started.
 
 ## Mode
 
@@ -398,9 +399,136 @@ multipart request.
 | Runtime harness (manual check, Task 4.7) | Throwaway Postgres `siricman-migtest` (127.0.0.1:55432, migrations already applied from Phase 3). Built `dist/main.js` run with inline env vars (`MEDIA_ROOT`/`MEDIA_PUBLIC_BASE_URL`/`MEDIA_SERVE_STATIC=true` pointed at a temp dir, dummy `JWT_SECRET`/`MFA_ENCRYPTION_KEY`, `PORT=3055`). Scratch `manager` role + user inserted directly via SQL (no MFA required for `manager`); a JWT was self-signed matching `JwtStrategy`'s `{ id, jti }` payload with the same dummy secret (simpler and equally honest per the orchestrator's instruction, since no seeded admin/MFA flow exists in this throwaway DB). Scratch property inserted via SQL. **First boot attempt failed** with `UnknownDependenciesException` on `SharpImageProcessor` — this is deviation 1 above; fixed, rebuilt, reboot succeeded. `curl -F file=@<16MB file>` → `413 Payload Too Large`. `curl -F file=@<real 800×600 JPEG generated with sharp>` → **first attempt failed** with `400 "Too many parts"` — this is deviation 2 above; reproduced in isolation, fixed (`parts: 2`), rebuilt, reboot, retried → `201` with `{ id, position: 0, url, width: 800, height: 600, thumbnailUrl, thumbnailWidth: 480, thumbnailHeight: 360, createdAt }` (no upscaling, dimensions correct); confirmed both `.webp` files exist on disk under `MEDIA_ROOT/properties/<id>/` and exactly one `property_images` row exists for the scratch property (`psql` query). `curl` of the returned `thumbnailUrl` (dev static route) → `200`, real WebP bytes (`RIFF ... Web/P image, VP8 encoding, 480x360`), `Cache-Control: public, max-age=31536000, immutable`, `Cross-Origin-Resource-Policy: cross-origin`. `curl -F file=@<text file renamed .jpg>` → `400 "Could not decode the uploaded file as an image"`. App stopped; scratch property (cascade-deleted its image row), user, `user_roles` row, and role deleted via SQL and confirmed `0` remaining; all local temp files (generated images, media root) deleted. `siricman-migtest` left running (shared fixture, per Phase 3's own precedent); no other container or database touched |
 | Rollback boundary | Revert the Phase-4 work-unit commit(s) alone: no other route depends on `AdminPropertyImagesController`/`PropertyImagesService` yet (Phase 5 extends the same files); the `SharpImageProcessor` `@Optional()` fix is additive/behavior-preserving for every existing caller and safe to keep even if the rest of Phase 4 were reverted |
 
+## Completed Tasks — Phase 5
+
+- [x] 5.1/5.2 `src/properties/dto/reorder-property-images.dto.ts` (+
+      `.spec.ts`): `ReorderPropertyImagesDto` (`@IsArray()`,
+      `@ArrayMinSize(1)`, `@ArrayMaxSize(30)`, `@ArrayUnique()`,
+      `@IsUUID('4', { each: true })`). These two files were already
+      staged, uncommitted, by an interrupted prior `sdd-apply` attempt;
+      this batch verified them against `design.md`/the spec by
+      temporarily moving the implementation file aside, observing a live
+      RED (`TS2307: Cannot find module`), restoring it, and observing a
+      live GREEN (6/6 tests) before keeping them as-is.
+- [x] 5.3 `src/properties/dto/index.ts`: added the missing
+      `export * from './reorder-property-images.dto'` — the interrupted
+      prior attempt had created the DTO but never wired its barrel
+      export.
+- [x] 5.4/5.5 `src/properties/images/property-images.service.ts` (+
+      `.spec.ts`): `reorder()` — fetches the current order via
+      `findByPropertyId` first and detects a same-order submission as a
+      no-op (returns the mapped current images; never calls
+      `repository.reorder()`, never audits); otherwise calls
+      `repository.reorder()` (maps `PropertyNotFoundError` →
+      `NotFoundException`, `NotAPermutationError` →
+      `BadRequestException`), then records `PROPERTY_IMAGE_REORDERED`
+      with `{ imageIds }` (new order) and returns the mapped, reordered
+      images.
+- [x] 5.6/5.7 `src/properties/images/property-images.service.ts` (+
+      `.spec.ts`): `delete()` — calls `repository.deleteAndCompact()`
+      (404 via `NotFoundException` when it returns `null`, i.e. the
+      image does not belong to that property), best-effort deletes both
+      rendition files via the existing `deleteKeys()` helper (already
+      catches and logs per-key failures without throwing, reused as-is
+      from Phase 4's upload compensation path), then records
+      `PROPERTY_IMAGE_DELETED` with `{ imageId, position }`.
+- [x] 5.8/5.9 `src/properties/controllers/admin-property-images.controller.ts`
+      (+ `.spec.ts`): `PUT order` (no `@Throttle` override, so it keeps
+      the class's inherited global 20/min) delegates to
+      `service.reorder(id, dto.imageIds, actor)`, `200`; `DELETE
+      :imageId` (`@Throttle({ default: { limit: 60, ttl: 60_000 } })`,
+      `ParseUUIDPipe` on `imageId`) delegates to `service.delete(id,
+      imageId, actor)`, `204`.
+- [x] 5.10/5.11 `src/properties/services/properties.service.ts` (+
+      `.spec.ts`): injected `STORAGE_PORT`, `PropertyImagesRepository`,
+      `MediaUrlBuilder`, and a `Logger`; `remove()` now best-effort calls
+      `storagePort.deletePrefix(propertyMediaPrefix(id))` after the row
+      `delete()` succeeds (failure logged via `Logger.warn`, never
+      thrown); new `findOneWithImages(id)` calls the existing `findOne()`
+      then `propertyImagesRepository.findByPropertyId(id)`, mapping each
+      row through `toPropertyImageResponse()`; `findOne()` itself is
+      byte-for-byte unchanged (regression-tested).
+- [x] 5.12/5.13 `src/properties/controllers/admin-properties.controller.ts`
+      (+ `.spec.ts`): `GET :id` now delegates to
+      `service.findOneWithImages(id)` instead of `service.findOne(id)`.
+- [x] 5.14 Verification — see Work Unit Evidence below.
+- [x] 5.15 Manual harness check — see Work Unit Evidence below.
+
+## Deviations from Design — Phase 5
+
+1. **Repository interface unchanged, no-op detection moved to the
+   service.** `design.md`'s reorder decision describes the no-op check
+   ("identical order = no-op, no write, no audit") without specifying
+   which layer detects it. `PropertyImagesRepository.reorder()` (already
+   implemented in Phase 3) already skips the `UPDATE` statement
+   internally when the submitted order matches the current order, but
+   its return type (`Promise<PropertyImage[]>`) gives the service no
+   signal to distinguish a no-op from a real write. Rather than change
+   the Phase-3 repository's already-tested, already-merged contract
+   (which `design.md`'s Interfaces/Contracts section documents
+   verbatim), the service fetches the current order via the existing
+   `findByPropertyId()` finder first and compares arrays itself: an
+   exact match skips calling `repository.reorder()` entirely (so no
+   repository write call and no audit call), and — because an array
+   identical to the current order is by construction a valid permutation
+   (current ids have no duplicates) — no separate permutation check is
+   needed on that path. This is strictly additive to the design, not a
+   contradiction of it: the observable behavior (no write, no audit
+   entry, `200` with the unchanged order) matches the spec's "Reordering
+   with the exact current image ids succeeds" and the no-op requirement
+   in `design.md`'s uniqueness decision exactly.
+2. **Harness environment substitution for task 5.15**, matching Phase
+   4's precedent exactly: `npm run db:up`/`npm run start:dev`/`npm run
+   db:down` were not used; instead the already-running throwaway
+   Postgres `siricman-migtest` (127.0.0.1:55432) and a built
+   `dist/main.js` with inline env vars were reused, per the
+   orchestrator's explicit instruction for this batch. Noted inline on
+   task 5.15 in `tasks.md` as well.
+
+No other deviations — reorder/delete orchestration order, the
+`findOneWithImages` response shape, the hard-delete cleanup order (row
+delete, then best-effort `deletePrefix`, matching design's "Decision:
+Delete order — DB first, files best effort" extended to the property
+level), and the throttle values all match `design.md` exactly.
+
+## Issues Found — Phase 5
+
+None.
+
+## TDD Cycle Evidence — Phase 5
+
+| Task pair | RED (observed failure before implementation) | GREEN (implementation) | REFACTOR | Verification |
+|---|---|---|---|---|
+| 5.1/5.2 `ReorderPropertyImagesDto` | Files were already staged (uncommitted) from an interrupted prior attempt; this batch independently re-observed RED by temporarily renaming `reorder-property-images.dto.ts` aside and running `npx jest reorder-property-images.dto` — failed with `TS2307: Cannot find module` (0 tests ran) | Restored the file (unchanged from the staged version, verified correct against 5.1's literal validator list and the spec's DTO scenarios); re-ran and observed 6/6 passed | None needed | Live RED (via temporary move) then GREEN observed this batch |
+| 5.3 `dto/index.ts` export | No dedicated spec — a missing barrel export doesn't fail any existing test on its own (verified: `npm test` was already green with the DTO unexported, since nothing imported it yet) | Added the missing `export * from './reorder-property-images.dto'` | None needed | Exercised indirectly once the controller (5.8/5.9) imports `ReorderPropertyImagesDto` from the barrel |
+| 5.4/5.5 `PropertyImagesService.reorder()` | Wrote the spec first (5 cases: rewrite + audit shape, same-order no-op with no repository/audit call, non-permutation → `BadRequestException`, nonexistent-property → `NotFoundException`); `npx jest property-images.service` failed to compile with `TS2339: Property 'reorder' does not exist on type 'PropertyImagesService'` (also covered 5.6/5.7's `delete` cases in the same failing compile) | Implemented `reorder()` per the orchestration described above; re-ran and observed **16/16 passed** (9 prior upload tests + 5 reorder + [pending 5.6/5.7 delete cases compiled together]) on the first implementation attempt | None needed | Live RED then GREEN observed this batch |
+| 5.6/5.7 `PropertyImagesService.delete()` | Same failing compile as above (`TS2339: Property 'delete' does not exist`), added alongside 5.4/5.5's tests in one spec-file edit | Implemented `delete()` per the orchestration described above; re-ran and observed all 16 tests passed (3 new delete cases + 5 reorder + 8 prior upload, one upload count off by prior batch's 9 — see full evidence table below) | None needed | Live RED then GREEN observed this batch (same commit as 5.4/5.5) |
+| 5.8/5.9 `AdminPropertyImagesController` (`PUT order`, `DELETE :imageId`) | Wrote the spec first (4 cases: reorder delegation, no throttle override on `reorder`, delete delegation, 60/min throttle on `remove`); `npx jest admin-property-images.controller` failed to compile with `TS2339: Property 'reorder' does not exist` / `Property 'remove' does not exist` | Implemented both handlers; re-ran and observed **9/9 passed** (5 prior upload tests + 4 new) on the first implementation attempt | None needed | Live RED then GREEN observed this batch |
+| 5.10/5.11 `PropertiesService` (`remove()` cleanup, `findOneWithImages()`) | Wrote the spec first (5 cases: `deletePrefix` called after row delete with correct call order, `deletePrefix` failure logged without throwing, `findOneWithImages` happy path + URLs, `findOneWithImages` 404, `findOne()` regression — no `findByPropertyId` call); `npx jest properties.service.spec` failed to compile with `TS2339: Property 'findOneWithImages' does not exist on type 'PropertiesService'` | Implemented both; re-ran and observed **37/37 passed** across the two matched spec files (32 prior `PropertiesService` tests + 5 new, plus the unrelated `public-properties.service.spec.ts` matched by the same glob) on the first implementation attempt | None needed | Live RED then GREEN observed this batch |
+| 5.12/5.13 `AdminPropertiesController` `GET :id` wiring | Wrote the spec first (delegates to `findOneWithImages`, not `findOne`); ran and observed a real runtime assertion failure (`Number of calls: 0` on `service.findOneWithImages`) rather than a compile error, since both methods already existed on the fake service object — a valid RED for a wiring change | Changed the one line (`this.propertiesService.findOne(id)` → `this.propertiesService.findOneWithImages(id)`); re-ran and observed 3/3 passed | Fixed one `@typescript-eslint/no-floating-promises` lint warning by `await`-ing the controller call in the new test | Live RED then GREEN then lint-driven REFACTOR observed this batch |
+
+**Honesty note**: every RED step in this batch was genuinely observed live
+in this session — either a TypeScript compile failure (`TS2307`/`TS2339`)
+for new methods/files, or a real failing assertion for the one pure-wiring
+change (5.12/5.13) — not reconstructed from an interrupted prior run,
+except for 5.1/5.2 where the prior attempt's staged files were kept after
+this batch independently re-verified RED by temporarily removing the
+implementation and observing the failure live, then restoring it and
+observing GREEN, exactly as the orchestrator's scope instructions required.
+
+## Work Unit Evidence (Unit 5 — Reorder + Delete + Admin + Hard-Delete Cleanup)
+
+| Evidence | Result |
+|---|---|
+| Focused test command | `npx jest property-images.service admin-property-images.controller properties.service admin-properties.controller reorder-property-images.dto` → all matched suites passed; full command also run: `npm test` → **38 suites / 385 tests passed** (up from 38/368 at the start of this batch — the two pre-existing untracked DTO files already counted toward that baseline; net new this batch: +17 tests across the service/controller/properties-service spec extensions) |
+| Lint | `npm run lint` → clean (no errors, no `--fix` changes left in the working tree beyond what was already staged/committed) |
+| Typecheck | `npx tsc -p tsconfig.build.json --noEmit` → no errors |
+| Build | `npm run build` → success |
+| Runtime harness (manual DB check, Task 5.15) | Throwaway Postgres `siricman-migtest` (127.0.0.1:55432, migrations already applied). Built `dist/main.js` run with inline env vars (`MEDIA_ROOT`/`MEDIA_PUBLIC_BASE_URL`/`MEDIA_SERVE_STATIC=true` pointed at a temp dir, dummy 64-hex-char `JWT_SECRET`/`MFA_ENCRYPTION_KEY`, `RUN_SEED=false`, `PORT=3055`). A scratch `admin` role + user (self-signed JWT matching `JwtStrategy`'s `{ id, jti }` payload — confirmed `JwtStrategy.validate()` performs no MFA check per request, matching the prompt's fallback instruction) and two scratch properties were inserted directly via SQL (one general-purpose, one never-published for the hard-delete scenario). App booted cleanly on the first attempt (no `UnknownDependenciesException` this time — Phase 4's `@Optional()` fix already covers the DI path). **Upload**: 3 images uploaded to property 1 → `201` each, positions 0/1/2, correct non-upscaled dimensions. **Reorder**: a full permutation (`[img3,img1,img2]`) → `200` with positions rewritten to `0,1,2` in the new order; resubmitting the identical order → `200` with the same unchanged result (no-op, confirmed via exactly one `property.image_reordered` audit row despite two reorder requests); a foreign-id permutation → `400` `"imageIds is not an exact permutation..."`; a non-UUID entry → `400` DTO validation error. **Delete**: deleting the first image → `204`; admin `GET /:id` confirmed the remaining two images ordered ascending by position (`0`, `1`) with no gap, and the deleted image's `-lg.webp`/`-thumb.webp` files were confirmed absent on disk (`Get-ChildItem`) while the two surviving images' files remained; deleting an image scoped to a different (nonexistent) property id → `404`. **Hard delete**: uploaded 1 image to the never-published scratch property, then `DELETE /api/admin/properties/:id` → `204`; confirmed via `psql` that both the property row and its `property_images` row were gone (cascade), and confirmed via filesystem inspection that the property's entire media directory was removed. **Direct SQL constraint check**: a single-row `UPDATE` attempting to force a duplicate `(property_id, position)` inside its own transaction failed immediately with `duplicate key value violates unique constraint "UQ_property_images_property_position"` (positions unchanged) — direct proof the deferrable constraint is live and that the earlier full-permutation reorder's success depended on the set-based single-statement `UPDATE ... WITH ORDINALITY` avoiding any intra-statement duplicate, exactly as `design.md` specifies. App log showed zero warnings/errors across the whole session. App stopped cleanly (port 3055 confirmed not listening afterward); all scratch rows (role, user, user\_roles, both properties, their image rows, and the 7 matching `audit_logs` entries) and all local temp files/directories deleted and confirmed at 0 remaining. One pre-existing, unrelated `audit_logs` row (entity id `33333333-...`, action `property.image_uploaded`) was found already present in the shared fixture DB before this batch started — left untouched, as it predates this session and is out of this batch's scope. `siricman-migtest` left running (shared fixture, per Phase 3/4 precedent); no other container or database touched |
+| Rollback boundary | Revert the Phase-5 work-unit commits alone: admin `GET /:id` falls back to plain `findOne()` if `findOneWithImages`'s commit is reverted (both still exist as separate methods on `PropertiesService` until then); upload (Phase 4) keeps working independently of reorder/delete; the four Phase-5 commits are independently revertable in reverse order (admin wiring → hard-delete cleanup → controller routes → DTO+service reorder/delete) since each only adds new methods/routes without modifying Phase 4's upload path |
+
 ## Remaining Tasks
 
-- [ ] Phase 5 (5.1–5.15): Reorder + delete + admin `findOne` + hard-delete cleanup.
 - [ ] Phase 6 (6.1–6.6): Public catalog.
 
 ## Workload / PR Boundary
@@ -445,6 +573,27 @@ multipart request.
   orchestrator/user treat PR 4 as an accepted `size:exception` (or split
   its review into the two commits above) rather than re-slicing the
   phase.
+- Unit 5 — Reorder + Delete + Admin + Hard-Delete Cleanup (PR 5, this
+  batch, branch `feat/images-5-manage`, created fresh from `main` after
+  PR 4 merged): boundary starts from `main` (post-PR-4) and ends at
+  `cbf5ce1`. Four work-unit commits: `ee9aca3` (reorder DTO + service
+  `reorder()`/`delete()`), `d309117` (controller `PUT order` +
+  `DELETE :imageId` routes), `b5fccd6` (`PropertiesService` hard-delete
+  media cleanup + `findOneWithImages()`), `cbf5ce1` (admin `GET :id`
+  wiring).
+- **Budget flag (Unit 5)**: `git diff --stat main...HEAD -- . ':!openspec'`
+  → **11 files changed, 667 insertions(+), 5 deletions(-)** — above the
+  400-line budget and above `tasks.md`'s own ~380 estimate, for the same
+  structural reason as PR 3/PR 4: roughly half the diff is test code kept
+  with its behavior (`property-images.service.spec.ts` +181 lines,
+  `properties.service.spec.ts` +124 lines, `admin-property-images.controller.spec.ts`
+  +67 lines). Not re-sliced further: `tasks.md`'s Suggested Work Units
+  table already designates the whole of Phase 5 as one atomic PR
+  (`Unit 5`), and the four work-unit commits already separate reorder,
+  routing, hard-delete cleanup, and admin wiring for reviewability.
+  Recommend the orchestrator/user treat PR 5 as an accepted
+  `size:exception` (or review it commit-by-commit) rather than
+  re-slicing the phase.
 
 ## Server-side steps required from the user (relay verbatim)
 
@@ -471,8 +620,9 @@ recreate).
 ## Status
 
 8/8 Phase 1 tasks complete, 19/19 Phase 2 tasks complete, 13/13 Phase 3
-tasks complete, 7/7 Phase 4 tasks complete (47/~90 total tasks across all
-6 phases). Phases 1–3 are merged to `main`. Ready for the user to
-review/merge PR 4 (`feat/images-4-upload` → `main`, per `stacked-to-main`)
-and for the next `sdd-apply` batch to start Phase 5. Do NOT start Phase 5
-in this batch per the orchestrator's explicit scope limit.
+tasks complete, 7/7 Phase 4 tasks complete, 15/15 Phase 5 tasks complete
+(62/68 total tasks across all 6 phases). Phases 1–4 are merged to `main`.
+Ready for the user to review/merge PR 5 (`feat/images-5-manage` → `main`,
+per `stacked-to-main`) and for the next `sdd-apply` batch to start Phase 6
+(public catalog, tasks 6.1–6.6). Do NOT start Phase 6 in this batch per
+the orchestrator's explicit scope limit.
