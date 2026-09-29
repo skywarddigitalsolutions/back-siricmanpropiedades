@@ -1,9 +1,14 @@
 import {
   BadRequestException,
+  Body,
   Controller,
+  Delete,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -23,6 +28,7 @@ import { Auth, GetUser } from '../../auth/decorators';
 import { ValidRoles } from '../../auth/interfaces';
 import { User } from '../../users/entities/user.entity';
 import { PropertyImageResponse } from '../helpers/property-image.mapper';
+import { ReorderPropertyImagesDto } from '../dto';
 
 /**
  * multer limits for the upload route. `fileSize` is the HTTP 413 boundary
@@ -52,7 +58,8 @@ export const IMAGE_UPLOAD_LIMITS = {
 /**
  * Admin image endpoints (`/api/admin/properties/:id/images`). Class-level
  * guard mirrors `AdminPropertiesController`: admin or manager, no per-method
- * override. Reorder and delete are added in Phase 5.
+ * override. `PUT order` keeps the global 20/min throttle (no override);
+ * `DELETE :imageId` carries the same 60/min throttle as upload.
  */
 @ApiTags('Admin Property Images')
 @Controller('admin/properties/:id/images')
@@ -97,6 +104,53 @@ export class AdminPropertyImagesController {
     if (!file) throw new BadRequestException('file is required');
 
     return this.propertyImagesService.upload(id, file, {
+      id: actor.id,
+      userName: actor.userName,
+    });
+  }
+
+  /** PUT /api/admin/properties/:id/images/order - Reordenar imágenes */
+  @ApiOperation({ summary: 'Reordenar las imágenes de una propiedad' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Imágenes reordenadas' })
+  @ApiResponse({
+    status: 400,
+    description: 'imageIds no es una permutación exacta del orden actual',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No existe una propiedad con ese id',
+  })
+  @Put('order')
+  reorder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReorderPropertyImagesDto,
+    @GetUser() actor: User,
+  ): Promise<PropertyImageResponse[]> {
+    return this.propertyImagesService.reorder(id, dto.imageIds, {
+      id: actor.id,
+      userName: actor.userName,
+    });
+  }
+
+  /** DELETE /api/admin/properties/:id/images/:imageId - Eliminar una imagen */
+  @ApiOperation({ summary: 'Eliminar una imagen de una propiedad' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiParam({ name: 'imageId', format: 'uuid' })
+  @ApiResponse({ status: 204, description: 'Imagen eliminada' })
+  @ApiResponse({
+    status: 404,
+    description: 'No existe una imagen con ese id para esa propiedad',
+  })
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Delete(':imageId')
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('imageId', ParseUUIDPipe) imageId: string,
+    @GetUser() actor: User,
+  ): Promise<void> {
+    return this.propertyImagesService.delete(id, imageId, {
       id: actor.id,
       userName: actor.userName,
     });

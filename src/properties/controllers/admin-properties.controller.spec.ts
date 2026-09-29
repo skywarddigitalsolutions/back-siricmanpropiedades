@@ -17,4 +17,19 @@ describe('AdminPropertiesController', () => {
 
     expect(roles).toEqual([ValidRoles.admin]);
   });
+
+  describe('GET /:id', () => {
+    it('delegates to service.findOneWithImages(id)', async () => {
+      const service = {
+        findOneWithImages: jest.fn().mockResolvedValue({ id: 'property-1' }),
+        findOne: jest.fn(),
+      };
+      const controller = new AdminPropertiesController(service as any);
+
+      await controller.findOne('property-1');
+
+      expect(service.findOneWithImages).toHaveBeenCalledWith('property-1');
+      expect(service.findOne).not.toHaveBeenCalled();
+    });
+  });
 });

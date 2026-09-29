@@ -13,6 +13,10 @@ import {
   PropertyType,
   PublicationStatus,
 } from '../enums/property.enums';
+import { STORAGE_PORT } from '../../media/storage/storage.port';
+import { PropertyImagesRepository } from '../images/property-images.repository';
+import { MediaUrlBuilder } from '../../media/media-url.builder';
+import { PropertyImage } from '../entities/property-image.entity';
 
 const CREATE_DTO = {
   operation: Operation.SALE,
@@ -35,6 +39,9 @@ describe('PropertiesService', () => {
   let propertyRepository: any;
   let neighborhoodRepository: any;
   let auditLogService: any;
+  let storagePort: any;
+  let propertyImagesRepository: any;
+  let mediaUrlBuilder: any;
 
   beforeEach(async () => {
     propertyRepository = {
@@ -54,6 +61,18 @@ describe('PropertiesService', () => {
       record: jest.fn(),
     };
 
+    storagePort = {
+      deletePrefix: jest.fn().mockResolvedValue(undefined),
+    };
+
+    propertyImagesRepository = {
+      findByPropertyId: jest.fn().mockResolvedValue([]),
+    };
+
+    mediaUrlBuilder = {
+      toUrl: (key: string) => `https://media.test/${key}`,
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PropertiesService,
@@ -66,6 +85,12 @@ describe('PropertiesService', () => {
           useValue: neighborhoodRepository,
         },
         { provide: AuditLogService, useValue: auditLogService },
+        { provide: STORAGE_PORT, useValue: storagePort },
+        {
+          provide: PropertyImagesRepository,
+          useValue: propertyImagesRepository,
+        },
+        { provide: MediaUrlBuilder, useValue: mediaUrlBuilder },
       ],
     }).compile();
 
@@ -628,6 +653,105 @@ describe('PropertiesService', () => {
 
       expect(propertyRepository.delete).not.toHaveBeenCalled();
       expect(auditLogService.record).not.toHaveBeenCalled();
+    });
+
+    it('calls storagePort.deletePrefix("properties/{id}/") after the row delete() succeeds', async () => {
+      propertyRepository.findOne.mockResolvedValue(neverPublishedProperty());
+      propertyRepository.delete.mockResolvedValue({ affected: 1 });
+
+      await service.remove('property-1');
+
+      expect(storagePort.deletePrefix).toHaveBeenCalledWith(
+        'properties/property-1/',
+      );
+      const deleteOrder = propertyRepository.delete.mock.invocationCallOrder[0];
+      const deletePrefixOrder =
+        storagePort.deletePrefix.mock.invocationCallOrder[0];
+      expect(deleteOrder).toBeLessThan(deletePrefixOrder);
+    });
+
+    it('logs a deletePrefix() failure but still resolves — the row deletion already succeeded', async () => {
+      propertyRepository.findOne.mockResolvedValue(neverPublishedProperty());
+      propertyRepository.delete.mockResolvedValue({ affected: 1 });
+      storagePort.deletePrefix.mockRejectedValue(new Error('disk error'));
+
+      await expect(service.remove('property-1')).resolves.toBeUndefined();
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: AuditAction.PROPERTY_DELETED }),
+      );
+    });
+  });
+
+  describe('findOneWithImages', () => {
+    function property(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'property-1',
+        code: 'SP-101',
+        neighborhood: { id: 'neighborhood-1', name: 'Palermo' },
+        ...overrides,
+      };
+    }
+
+    function image(overrides: Partial<PropertyImage> = {}): PropertyImage {
+      return {
+        id: 'img-1',
+        propertyId: 'property-1',
+        position: 0,
+        largeKey: 'properties/property-1/img-1-lg.webp',
+        thumbKey: 'properties/property-1/img-1-thumb.webp',
+        width: 1920,
+        height: 1080,
+        thumbWidth: 480,
+        thumbHeight: 270,
+        largeBytes: 5,
+        thumbBytes: 5,
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        ...overrides,
+      } as PropertyImage;
+    }
+
+    it('returns the property plus its images ordered ascending by position with large/thumb URLs', async () => {
+      propertyRepository.findOne.mockResolvedValue(property());
+      const images = [
+        image({ id: 'img-1', position: 0 }),
+        image({ id: 'img-2', position: 1 }),
+      ];
+      propertyImagesRepository.findByPropertyId.mockResolvedValue(images);
+
+      const result = await service.findOneWithImages('property-1');
+
+      expect(propertyImagesRepository.findByPropertyId).toHaveBeenCalledWith(
+        'property-1',
+      );
+      expect(result.id).toBe('property-1');
+      expect(result.images).toEqual([
+        expect.objectContaining({
+          id: 'img-1',
+          position: 0,
+          url: 'https://media.test/properties/property-1/img-1-lg.webp',
+          thumbnailUrl:
+            'https://media.test/properties/property-1/img-1-thumb.webp',
+        }),
+        expect.objectContaining({ id: 'img-2', position: 1 }),
+      ]);
+    });
+
+    it('throws NotFoundException when the property does not exist', async () => {
+      propertyRepository.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.findOneWithImages('missing-id'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('regression: findOne() stays unguarded — no images relation loaded, no extra query', async () => {
+      const existing = property();
+      propertyRepository.findOne.mockResolvedValue(existing);
+
+      const result = await service.findOne('property-1');
+
+      expect(result).toBe(existing);
+      expect(propertyImagesRepository.findByPropertyId).not.toHaveBeenCalled();
     });
   });
 });

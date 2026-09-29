@@ -1,6 +1,8 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -27,6 +29,15 @@ import { AuditLogService } from '../../audit/audit-log.service';
 import { AuditAction } from '../../audit/enums/audit-action.enum';
 import { AuditActor } from '../../audit/interfaces/audit-actor.interface';
 import { Paginated } from '../../common/interfaces/paginated.interface';
+import { STORAGE_PORT } from '../../media/storage/storage.port';
+import type { StoragePort } from '../../media/storage/storage.port';
+import { MediaUrlBuilder } from '../../media/media-url.builder';
+import { PropertyImagesRepository } from '../images/property-images.repository';
+import { propertyMediaPrefix } from '../images/property-image-keys';
+import {
+  PropertyImageResponse,
+  toPropertyImageResponse,
+} from '../helpers/property-image.mapper';
 
 /**
  * `CreatePropertyDto` keys that `update()` diffs and applies generically.
@@ -67,12 +78,17 @@ const UPDATABLE_FIELDS = [
 
 @Injectable()
 export class PropertiesService {
+  private readonly logger = new Logger(PropertiesService.name);
+
   constructor(
     @InjectRepository(Property)
     private readonly propertyRepository: Repository<Property>,
     @InjectRepository(Neighborhood)
     private readonly neighborhoodRepository: Repository<Neighborhood>,
     private readonly auditLogService: AuditLogService,
+    @Inject(STORAGE_PORT) private readonly storagePort: StoragePort,
+    private readonly propertyImagesRepository: PropertyImagesRepository,
+    private readonly mediaUrlBuilder: MediaUrlBuilder,
   ) {}
 
   /**
@@ -214,6 +230,26 @@ export class PropertiesService {
     });
     if (!property) throw new NotFoundException('Property not found');
     return property;
+  }
+
+  /**
+   * Same lookup as `findOne`, plus the property's images ordered ascending
+   * by `position`. Used only by the admin `GET /:id` endpoint —
+   * `findOne()` itself stays unchanged (no images relation, no extra
+   * query) since every mutation path calls it.
+   */
+  async findOneWithImages(
+    id: string,
+  ): Promise<Property & { images: PropertyImageResponse[] }> {
+    const property = await this.findOne(id);
+    const images = await this.propertyImagesRepository.findByPropertyId(id);
+
+    return {
+      ...property,
+      images: images.map((image) =>
+        toPropertyImageResponse(image, this.mediaUrlBuilder),
+      ),
+    };
   }
 
   /**
@@ -368,6 +404,14 @@ export class PropertiesService {
       );
 
     await this.propertyRepository.delete(id);
+
+    await this.storagePort
+      .deletePrefix(propertyMediaPrefix(id))
+      .catch((err: unknown) => {
+        this.logger.warn(
+          `Failed to delete media prefix for property "${id}": ${(err as Error).message}`,
+        );
+      });
 
     await this.auditLogService.record({
       actor,

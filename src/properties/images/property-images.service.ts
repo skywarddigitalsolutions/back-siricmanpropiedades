@@ -8,9 +8,11 @@ import {
 import { randomUUID } from 'crypto';
 import {
   ImageCapExceededError,
+  NotAPermutationError,
   PropertyImagesRepository,
   PropertyNotFoundError,
 } from './property-images.repository';
+import { PropertyImage } from '../entities/property-image.entity';
 import { buildPropertyImageKeys } from './property-image-keys';
 import { STORAGE_PORT } from '../../media/storage/storage.port';
 import type { StoragePort } from '../../media/storage/storage.port';
@@ -32,6 +34,13 @@ import {
   PropertyImageResponse,
   toPropertyImageResponse,
 } from '../helpers/property-image.mapper';
+
+function mapImages(
+  images: PropertyImage[],
+  urls: MediaUrlBuilder,
+): PropertyImageResponse[] {
+  return images.map((image) => toPropertyImageResponse(image, urls));
+}
 
 /** Per-property upload cap; the 31st image on a property is rejected. */
 export const MAX_IMAGES_PER_PROPERTY = 30;
@@ -111,6 +120,89 @@ export class PropertyImagesService {
       .catch(() => undefined);
 
     return toPropertyImageResponse(saved, this.mediaUrlBuilder);
+  }
+
+  /**
+   * Per `design.md`'s "Decision: (property_id, position) uniqueness":
+   * identical order is a no-op (200, no write, no audit). The service
+   * detects this itself, before ever calling `repository.reorder()`, by
+   * comparing the submitted order against the current order — an equal
+   * array is by construction a valid permutation (current ids have no
+   * duplicates), so no separate permutation check is needed on this path.
+   */
+  async reorder(
+    propertyId: string,
+    imageIds: string[],
+    actor?: AuditActor,
+  ): Promise<PropertyImageResponse[]> {
+    const current =
+      await this.propertyImagesRepository.findByPropertyId(propertyId);
+    const currentIds = current.map((image) => image.id);
+    const isNoOp =
+      currentIds.length === imageIds.length &&
+      currentIds.every((id, index) => id === imageIds[index]);
+
+    if (isNoOp) {
+      return mapImages(current, this.mediaUrlBuilder);
+    }
+
+    let reordered: PropertyImage[];
+    try {
+      reordered = await this.propertyImagesRepository.reorder(
+        propertyId,
+        imageIds,
+      );
+    } catch (err) {
+      if (err instanceof PropertyNotFoundError) {
+        throw new NotFoundException('Property not found');
+      }
+      if (err instanceof NotAPermutationError) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
+
+    await this.auditLogService
+      .record({
+        actor,
+        action: AuditAction.PROPERTY_IMAGE_REORDERED,
+        entityType: 'property',
+        entityId: propertyId,
+        metadata: { imageIds },
+      })
+      .catch(() => undefined);
+
+    return mapImages(reordered, this.mediaUrlBuilder);
+  }
+
+  /**
+   * Per `design.md`'s "Decision: Delete order — DB first, files best
+   * effort": the row (and position compaction) is removed first; both
+   * rendition files are then deleted best-effort — a failure is logged and
+   * never fails the request, since the row deletion already succeeded.
+   */
+  async delete(
+    propertyId: string,
+    imageId: string,
+    actor?: AuditActor,
+  ): Promise<void> {
+    const deleted = await this.propertyImagesRepository.deleteAndCompact(
+      propertyId,
+      imageId,
+    );
+    if (!deleted) throw new NotFoundException('Image not found');
+
+    await this.deleteKeys([deleted.largeKey, deleted.thumbKey]);
+
+    await this.auditLogService
+      .record({
+        actor,
+        action: AuditAction.PROPERTY_IMAGE_DELETED,
+        entityType: 'property',
+        entityId: propertyId,
+        metadata: { imageId: deleted.id, position: deleted.position },
+      })
+      .catch(() => undefined);
   }
 
   private async insertAppendedWithCompensation(
