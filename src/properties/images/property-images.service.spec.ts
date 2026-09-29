@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PropertyImagesService } from './property-images.service';
 import {
   ImageCapExceededError,
+  NotAPermutationError,
   PropertyNotFoundError,
 } from './property-images.repository';
 import {
@@ -20,6 +21,9 @@ function makeFakeRepository() {
     propertyExists: jest.fn().mockResolvedValue(true),
     countByProperty: jest.fn().mockResolvedValue(0),
     insertAppended: jest.fn(),
+    reorder: jest.fn(),
+    deleteAndCompact: jest.fn(),
+    findByPropertyId: jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -205,5 +209,182 @@ describe('PropertyImagesService (upload)', () => {
     const result = await service.upload(PROPERTY_ID, makeFile());
 
     expect(result.id).toBe('img-2');
+  });
+});
+
+describe('PropertyImagesService (reorder)', () => {
+  let repository: ReturnType<typeof makeFakeRepository>;
+  let storage: ReturnType<typeof makeFakeStorage>;
+  let processor: { process: jest.Mock };
+  let auditLogService: { record: jest.Mock };
+  let mediaUrlBuilder: MediaUrlBuilder;
+  let service: PropertyImagesService;
+
+  beforeEach(() => {
+    repository = makeFakeRepository();
+    storage = makeFakeStorage();
+    processor = { process: jest.fn() };
+    auditLogService = { record: jest.fn().mockResolvedValue(undefined) };
+    mediaUrlBuilder = {
+      toUrl: (key: string) => `https://media.test/${key}`,
+    } as MediaUrlBuilder;
+
+    service = new PropertyImagesService(
+      repository as any,
+      processor,
+      storage,
+      mediaUrlBuilder,
+      auditLogService as any,
+    );
+  });
+
+  it('rewrites positions to the submitted order and records PROPERTY_IMAGE_REORDERED with the new order', async () => {
+    const current = [
+      makeSavedImage({ id: 'img-a', position: 0 }),
+      makeSavedImage({ id: 'img-b', position: 1 }),
+      makeSavedImage({ id: 'img-c', position: 2 }),
+    ];
+    const newOrder = ['img-c', 'img-a', 'img-b'];
+    const reordered = [
+      makeSavedImage({ id: 'img-c', position: 0 }),
+      makeSavedImage({ id: 'img-a', position: 1 }),
+      makeSavedImage({ id: 'img-b', position: 2 }),
+    ];
+    repository.findByPropertyId.mockResolvedValue(current);
+    repository.reorder.mockResolvedValue(reordered);
+
+    const result = await service.reorder(PROPERTY_ID, newOrder, {
+      id: 'user-1',
+      userName: 'admin',
+    });
+
+    expect(repository.reorder).toHaveBeenCalledWith(PROPERTY_ID, newOrder);
+    expect(result.map((r) => r.id)).toEqual(['img-c', 'img-a', 'img-b']);
+    result.forEach((r, index) => expect(r.position).toBe(index));
+    expect(auditLogService.record).toHaveBeenCalledWith({
+      actor: { id: 'user-1', userName: 'admin' },
+      action: AuditAction.PROPERTY_IMAGE_REORDERED,
+      entityType: 'property',
+      entityId: PROPERTY_ID,
+      metadata: { imageIds: newOrder },
+    });
+  });
+
+  it('is a no-op when the submitted order equals the current order: no repository write call, no audit call', async () => {
+    const current = [
+      makeSavedImage({ id: 'img-a', position: 0 }),
+      makeSavedImage({ id: 'img-b', position: 1 }),
+    ];
+    repository.findByPropertyId.mockResolvedValue(current);
+
+    const result = await service.reorder(PROPERTY_ID, ['img-a', 'img-b']);
+
+    expect(repository.reorder).not.toHaveBeenCalled();
+    expect(auditLogService.record).not.toHaveBeenCalled();
+    expect(result.map((r) => r.id)).toEqual(['img-a', 'img-b']);
+  });
+
+  it('surfaces a non-permutation submission as BadRequestException with no position change asserted', async () => {
+    const current = [
+      makeSavedImage({ id: 'img-a', position: 0 }),
+      makeSavedImage({ id: 'img-b', position: 1 }),
+    ];
+    repository.findByPropertyId.mockResolvedValue(current);
+    repository.reorder.mockRejectedValue(new NotAPermutationError(PROPERTY_ID));
+
+    await expect(
+      service.reorder(PROPERTY_ID, ['img-a', 'foreign-id']),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(auditLogService.record).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a reorder against a nonexistent property as NotFoundException', async () => {
+    repository.findByPropertyId.mockResolvedValue([]);
+    repository.reorder.mockRejectedValue(
+      new PropertyNotFoundError(PROPERTY_ID),
+    );
+
+    await expect(
+      service.reorder(PROPERTY_ID, ['img-a']),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('PropertyImagesService (delete)', () => {
+  let repository: ReturnType<typeof makeFakeRepository>;
+  let storage: ReturnType<typeof makeFakeStorage>;
+  let processor: { process: jest.Mock };
+  let auditLogService: { record: jest.Mock };
+  let mediaUrlBuilder: MediaUrlBuilder;
+  let service: PropertyImagesService;
+  let loggerWarnSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    repository = makeFakeRepository();
+    storage = makeFakeStorage();
+    processor = { process: jest.fn() };
+    auditLogService = { record: jest.fn().mockResolvedValue(undefined) };
+    mediaUrlBuilder = {
+      toUrl: (key: string) => `https://media.test/${key}`,
+    } as MediaUrlBuilder;
+
+    service = new PropertyImagesService(
+      repository as any,
+      processor,
+      storage,
+      mediaUrlBuilder,
+      auditLogService as any,
+    );
+
+    loggerWarnSpy = jest
+      .spyOn((service as any).logger, 'warn')
+      .mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    loggerWarnSpy.mockRestore();
+  });
+
+  it('removes the row, deletes both files, and records PROPERTY_IMAGE_DELETED with { imageId, position }', async () => {
+    const deleted = makeSavedImage({ id: 'img-1', position: 1 });
+    repository.deleteAndCompact.mockResolvedValue(deleted);
+
+    await service.delete(PROPERTY_ID, 'img-1', {
+      id: 'user-1',
+      userName: 'admin',
+    });
+
+    expect(repository.deleteAndCompact).toHaveBeenCalledWith(
+      PROPERTY_ID,
+      'img-1',
+    );
+    expect(storage.delete).toHaveBeenCalledWith(deleted.largeKey);
+    expect(storage.delete).toHaveBeenCalledWith(deleted.thumbKey);
+    expect(auditLogService.record).toHaveBeenCalledWith({
+      actor: { id: 'user-1', userName: 'admin' },
+      action: AuditAction.PROPERTY_IMAGE_DELETED,
+      entityType: 'property',
+      entityId: PROPERTY_ID,
+      metadata: { imageId: 'img-1', position: 1 },
+    });
+  });
+
+  it('surfaces an image id belonging to a different property as NotFoundException', async () => {
+    repository.deleteAndCompact.mockResolvedValue(null);
+
+    await expect(
+      service.delete(PROPERTY_ID, 'foreign-img'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(storage.delete).not.toHaveBeenCalled();
+    expect(auditLogService.record).not.toHaveBeenCalled();
+  });
+
+  it('logs a StoragePort.delete() failure without throwing — the row deletion already succeeded', async () => {
+    const deleted = makeSavedImage({ id: 'img-1', position: 0 });
+    repository.deleteAndCompact.mockResolvedValue(deleted);
+    storage.delete.mockRejectedValueOnce(new Error('disk unavailable'));
+
+    await expect(service.delete(PROPERTY_ID, 'img-1')).resolves.toBeUndefined();
+    expect(loggerWarnSpy).toHaveBeenCalled();
   });
 });
