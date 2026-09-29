@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditLog } from './entities/audit-log.entity';
@@ -22,14 +22,20 @@ export interface FindAuditLogsFilters {
 
 @Injectable()
 export class AuditLogService {
+  private readonly logger = new Logger(AuditLogService.name);
+
   constructor(
     @InjectRepository(AuditLog)
     private readonly auditLogRepository: Repository<AuditLog>,
   ) {}
 
   /**
-   * Registra una acción auditable. Nunca debe lanzar hacia arriba: un fallo
-   * al auditar no debería tumbar la operación de negocio que la originó.
+   * Registra una acción auditable. Nunca lanza hacia arriba: si el guardado
+   * en el repositorio falla, el error se captura acá, se loguea como
+   * warning con el tipo/id de entidad y la acción, y `record()` igual
+   * resuelve. Esto centraliza el fix para todo caller actual y futuro
+   * (incluidos los `await record()` sin try/catch de `PropertiesService`),
+   * en vez de requerir un wrapper local por servicio.
    */
   async record(entry: RecordAuditEntry): Promise<void> {
     const log = this.auditLogRepository.create({
@@ -41,7 +47,13 @@ export class AuditLogService {
       metadata: entry.metadata ?? null,
     });
 
-    await this.auditLogRepository.save(log);
+    try {
+      await this.auditLogRepository.save(log);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to persist audit log entry (entityType=${entry.entityType}, entityId=${entry.entityId ?? 'null'}, action=${entry.action}): ${(err as Error).message}`,
+      );
+    }
   }
 
   async findAll(filters?: FindAuditLogsFilters): Promise<AuditLog[]> {

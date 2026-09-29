@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { AuditLogService } from './audit-log.service';
@@ -66,6 +67,31 @@ describe('AuditLogService', () => {
       expect(auditLogRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ actorId: null, actorUserName: null }),
       );
+    });
+
+    it('resolves (does not throw/reject) when the repository save rejects, and logs a warning', async () => {
+      auditLogRepository.save.mockRejectedValueOnce(new Error('db down'));
+      const warnSpy = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined);
+
+      await expect(
+        service.record({
+          action: AuditAction.PROPERTY_CREATED,
+          entityType: 'property',
+          entityId: 'property-1',
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('property'));
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('property-1'),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(AuditAction.PROPERTY_CREATED),
+      );
+
+      warnSpy.mockRestore();
     });
   });
 

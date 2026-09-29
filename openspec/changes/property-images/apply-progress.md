@@ -2,8 +2,9 @@
 
 ## Scope of this record
 
-Phase 1 (infra slice, PR 1, tasks 1.1–1.8) and Phase 2 (media core slice,
-PR 2, tasks 2.1–2.19). Phases 3–6 are not started.
+Phase 1 (infra slice, PR 1, tasks 1.1–1.8), Phase 2 (media core slice,
+PR 2, tasks 2.1–2.19), and Phase 3 (schema + persistence + central
+`AuditLogService` fix, PR 3, tasks 3.1–3.13). Phases 4–6 are not started.
 
 ## Mode
 
@@ -186,9 +187,90 @@ against actual libvips output).
 | Build | `npm run build` → success |
 | Rollback boundary | Revert the three Phase-2 commits (`fb741c4`, `b64431d`, `6bbf48c`) alone: `MediaModule` is not yet imported by `PropertiesModule` (Phase 4 does that), so nothing else in the app depends on it; `main.ts`'s static-serving block is additive and gated behind `MEDIA_SERVE_STATIC` (default `false`) |
 
+## Completed Tasks — Phase 3
+
+- [x] 3.1/3.2 `src/audit/audit-log.service.ts` (+ `.spec.ts`): central fix —
+      `record()` wraps `auditLogRepository.save(log)` in `try/catch`, logs a
+      warning via `Logger` (entity type, entity id, action, and the
+      underlying error message), and always resolves. Covers every current
+      and future caller, including `PropertiesService`'s existing unguarded
+      `await record()` calls, with one change.
+- [x] 3.3 `src/audit/enums/audit-action.enum.ts`: added
+      `PROPERTY_IMAGE_UPLOADED = 'property.image_uploaded'`,
+      `PROPERTY_IMAGE_REORDERED = 'property.image_reordered'`,
+      `PROPERTY_IMAGE_DELETED = 'property.image_deleted'`.
+- [x] 3.4 `src/properties/entities/property-image.entity.ts`: `PropertyImage`
+      entity — `@PrimaryColumn('uuid') id` (app-generated), `@ManyToOne`
+      `Property` with `onDelete: 'CASCADE'` plus explicit `propertyId`
+      column, `position: smallint`, `largeKey`/`thumbKey`,
+      `width`/`height`, `thumbWidth`/`thumbHeight`, `largeBytes`/
+      `thumbBytes`, `createdAt`. No inverse `images` relation on `Property`
+      (Reconciliation Note 5 / design decision preserved).
+- [x] 3.5 `src/migrations/1790500000002-CreatePropertyImages.ts`: creates
+      `property_images` with `PK id`, `CHECK (position >= 0)`,
+      `UNIQUE (property_id, position) DEFERRABLE INITIALLY IMMEDIATE`, and
+      `FK property_id -> properties(id) ON DELETE CASCADE`; `down()` drops
+      the table. `InitSchema`/`CreateNeighborhoods`/`CreateProperties`
+      untouched.
+- [x] 3.6/3.7 `src/properties/images/property-image-keys.ts` (+ `.spec.ts`):
+      `buildPropertyImageKeys(propertyId, imageId)` returns the
+      `properties/{propertyId}/{imageId}-lg.webp` / `-thumb.webp` pair;
+      `propertyMediaPrefix(propertyId)` returns `properties/{propertyId}/`.
+- [x] 3.8/3.9 `src/properties/images/property-images.repository.ts` (+
+      `.spec.ts`): `PropertyImagesRepository` — `propertyExists`/
+      `countByProperty` (non-transactional reads); `insertAppended` locks
+      the property row (`SELECT ... FOR UPDATE`) before counting/inserting,
+      throws `PropertyNotFoundError`/`ImageCapExceededError`, inserts at
+      `position = count`; `reorder` locks first, validates an exact
+      permutation (`NotAPermutationError` otherwise), is a no-op when the
+      submitted order matches the current order, otherwise issues exactly
+      one `UPDATE ... FROM unnest($1::uuid[]) WITH ORDINALITY` statement;
+      `deleteAndCompact` locks first, returns `null` when the image does not
+      belong to the property, otherwise deletes and issues exactly one
+      compaction `UPDATE ... WHERE position > $2`; `findByPropertyId`/
+      `findCoversByPropertyIds` read ordered/position-0 rows.
+- [x] 3.10/3.11 `src/properties/helpers/property-image.mapper.ts` (+
+      `.spec.ts`): `toPropertyImageResponse` (admin shape: `id`, `position`,
+      `url`, `width`, `height`, `thumbnailUrl`, `thumbnailWidth`,
+      `thumbnailHeight`, `createdAt`) and `toPublicPropertyImage` (public
+      shape: same rendition fields, no `id`/`position`) via
+      `MediaUrlBuilder`; neither ever serializes `largeKey`/`thumbKey`.
+- [x] 3.12 Verification — see Work Unit Evidence below.
+- [x] 3.13 Manual DB check — see Work Unit Evidence below.
+
+## Deviations from Design — Phase 3
+
+None — implementation matches `design.md`'s entity/migration SQL, the
+repository's lock-first transactional contract, the reorder/compaction SQL,
+and the response-shape decisions exactly.
+
+## Issues Found — Phase 3
+
+None.
+
+## TDD Cycle Evidence — Phase 3
+
+| Task pair | RED (observed failure before implementation) | GREEN (implementation) | REFACTOR | Verification |
+|---|---|---|---|---|
+| 3.1/3.2 `AuditLogService.record()` central fix | Added a failing test asserting `record()` resolves and logs a warning when `auditLogRepository.save()` rejects; ran `npx jest audit-log.service` and observed 1 failed / 3 passed (rejected promise) before any implementation change | Wrapped `save()` in `try/catch`, added `Logger.warn(...)` with entity type/id/action; re-ran and observed 4/4 passed | None needed — minimal, matches existing `RetentionService` `Logger` convention | Live RED then GREEN observed this batch |
+| 3.6/3.7 `property-image-keys` | Wrote the spec first; `npx jest property-image-keys` failed with `TS2307: Cannot find module './property-image-keys'` (module did not exist) | Implemented `buildPropertyImageKeys`/`propertyMediaPrefix`; re-ran and observed 2/2 passed | None needed | Live RED then GREEN observed this batch |
+| 3.8/3.9 `PropertyImagesRepository` | Wrote the spec first (22 cases: lock-first ordering, `PropertyNotFoundError`, `ImageCapExceededError`, `NotAPermutationError` — wrong length/duplicate/foreign/missing id, no-op reorder, single-UPDATE reorder and compaction assertions, `findByPropertyId`/`findCoversByPropertyIds`); `npx jest property-images.repository` failed with `TS2307` (module did not exist) | Implemented `PropertyImagesRepository` against a single `DataSource` dependency (`.manager.query`/`.manager.getRepository` for non-tx reads, `.transaction(cb)` + `manager.query`/`manager.getRepository` for locked writes); re-ran and observed **22/22 passed on the first implementation attempt** | Two ESLint-driven refactors after `npm run lint`: typed `manager.query<unknown[]>(...)` instead of the untyped default (`any`) return, and extracted a typed `FindOptionsWhere<PropertyImage>` plus an explicit `Promise.resolve<PropertyImage[]>([])` for the empty-ids short-circuit in `findCoversByPropertyIds` (fixed a `no-unsafe-return` finding); re-ran `npm test` (still 22/22) and `npm run lint` (clean) after each | Live RED then GREEN then lint-driven REFACTOR observed this batch |
+| 3.10/3.11 `property-image.mapper` | Wrote the spec first (admin/public projections, key-leak guards); `npx jest property-image.mapper` failed with `TS2307` (module did not exist) | Implemented `toPropertyImageResponse`/`toPublicPropertyImage` using `MediaUrlBuilder.toUrl()`; re-ran and observed 4/4 passed | None needed | Live RED then GREEN observed this batch |
+| 3.3, 3.4, 3.5 | No dedicated spec, per `tasks.md`'s own annotation on each task (enum literals, declarative entity, migration — this repo has no migration unit-test layer) | Implemented exactly as designed | N/A | Exercised indirectly through 3.8/3.9's repository spec (entity) and the manual DB check in 3.13 (migration); `npm test`/`npm run build` |
+
+## Work Unit Evidence (Unit 3 — Schema + Persistence)
+
+| Evidence | Result |
+|---|---|
+| Focused test command | `npx jest audit-log.service property-image-keys property-images.repository property-image.mapper` → covered by the full-suite run below; full command also run: `npm test` → **35 suites / 348 tests passed** (up from 32/319 at end of Phase 2: +3 suites — `property-image-keys`, `property-images.repository`, `property-image.mapper` — +29 tests, all new; `audit-log.service` grew from 3 to 4 tests in the same suite) |
+| Lint | `npm run lint` → clean after fixing 9 `@typescript-eslint` findings in `property-images.repository.ts` (untyped `manager.query()` results and one `no-unsafe-return` on the empty-array short-circuit; see TDD Cycle Evidence REFACTOR column) |
+| Typecheck | `npx tsc -p tsconfig.build.json --noEmit` → no errors |
+| Build | `npm run build` → success |
+| Runtime harness (manual DB check, Task 3.13) | Throwaway Postgres container `siricman-migtest` (127.0.0.1:55432, db `migtest`, `InitSchema`/`CreateNeighborhoods`/`CreateProperties` already applied). `npm run migration:run` → `CreatePropertyImages1790500000002` executed. `psql \d property_images` confirmed the table, `CHK_property_images_position`, `UQ_property_images_property_position ... DEFERRABLE`, and `FK_property_images_property ... ON DELETE CASCADE` exactly as written. Inserted a scratch property + 3 image rows at positions 0–2. (b) A single-statement `UPDATE ... FROM unnest($1::uuid[]) WITH ORDINALITY` full permutation (`c,a,b` → positions `0,1,2`) committed with no mid-statement violation. (c) A single-statement `UPDATE ... CASE WHEN ... THEN 0 ...` forcing two rows to the same `(property_id, position)` was rejected with `duplicate key value violates unique constraint "UQ_property_images_property_position"` and rolled back cleanly (positions unchanged). (d) `DELETE FROM properties WHERE id = ...` cascade-deleted all 3 `property_images` rows (`0` remaining) and the property row itself (`0` remaining) — no orphans. `npm run migration:revert` → table dropped, `properties` (0 rows, scratch already cascade-deleted) and `neighborhoods` (48 rows) intact; `npm run migration:run` again → re-applied successfully. Container left running (a shared fixture, not started/stopped by this batch); no other container or database touched |
+| Rollback boundary | Revert the two Phase-3 commits (`4211bb8` audit fix, `1b33e9b` schema+persistence) alone: no controller routes exist yet (Phase 4 adds them), so no external behavior regresses; the `AuditLogService` fix is additive (never-throws is strictly safer) and does not change any existing call site's inputs/outputs; `npm run migration:revert` cleanly drops `property_images` with `properties`/`neighborhoods` untouched, as proven above |
+
 ## Remaining Tasks
 
-- [ ] Phase 3 (3.1–3.13): Schema + persistence + central `AuditLogService` fix.
 - [ ] Phase 4 (4.1–4.7): Upload.
 - [ ] Phase 5 (5.1–5.15): Reorder + delete + admin `findOne` + hard-delete cleanup.
 - [ ] Phase 6 (6.1–6.6): Public catalog.
@@ -200,26 +282,32 @@ against actual libvips output).
   preflight — no new decision required to implement one designated phase as
   one PR slice).
 - Unit 1 — Infra (PR 1, ~67 changed lines): merged (`b7c5ba8`).
-- Unit 2 — Media Core (PR 2, this batch): boundary starts from `b7c5ba8`
-  (Phase 1 merged to `main`) and ends at `6bbf48c` on
-  `feat/images-2-media-core`. Three work-unit commits:
-  `fb741c4` (Semaphore + media config), `b64431d` (StoragePort +
-  LocalDiskStorage), `6bbf48c` (SharpImageProcessor, MediaUrlBuilder,
-  MediaModule, `main.ts` wiring, deps, docs).
-- **Budget flag**: `git diff --stat main...HEAD -- . ':!openspec'
-  ':!package-lock.json'` → **17 files changed, 1025 insertions(+)** —
-  significantly above the 400-line budget and above `tasks.md`'s own ~390
-  estimate for this slice (the gap is almost entirely test code: ~562 of the
-  1025 lines are `.spec.ts` files under Strict TDD). This was not re-sliced
-  further because `tasks.md`'s Suggested Work Units table already designates
-  the whole of Phase 2 as one atomic PR (`Unit 2`, "Media core"), the files
-  are tightly interdependent (`Semaphore` → `SharpImageProcessor` →
-  `MediaModule`; `MediaConfig` → `LocalDiskStorage`/`MediaUrlBuilder`/
-  `main.ts`), and `design.md`'s module-placement decision treats this as one
-  cohesive unit. Three work-unit commits were still made for reviewability.
-  Recommend the orchestrator/user treat PR 2 as an accepted `size:exception`
-  (or split its review into the three commits above) rather than re-slicing
-  the phase.
+- Unit 2 — Media Core (PR 2): merged (`9cfeac0` merge commit; three
+  work-unit commits `fb741c4`, `b64431d`, `6bbf48c` on
+  `feat/images-2-media-core`).
+- Unit 3 — Schema + Persistence (PR 3, this batch, branch
+  `feat/images-3-schema`): boundary starts from `9cfeac0` (Phase 2 merged to
+  `main`) and ends at `1b33e9b`. Two work-unit commits: `4211bb8` (central
+  `AuditLogService.record()` fix) and `1b33e9b` (`PropertyImage` entity,
+  migration, repository, key builder, image mappers, audit enum values).
+- **Budget flag**: `git diff --stat main...HEAD -- . ':!openspec'` (from
+  `9cfeac0`, i.e. this slice alone) → **11 files changed, 896 insertions(+),
+  4 deletions(-)** — above the 400-line budget and above `tasks.md`'s own
+  ~330–370 estimate (the gap is again mostly test code: the
+  `property-images.repository.spec.ts` file alone, covering 22 cases across
+  `propertyExists`/`countByProperty`/`insertAppended`/`reorder`/
+  `deleteAndCompact`/`findByPropertyId`/`findCoversByPropertyIds`, is ~330
+  lines). Not re-sliced further because `tasks.md`'s Suggested Work Units
+  table already designates the whole of Phase 3 as one atomic PR (`Unit 3`,
+  "Schema + persistence"), the files are directly dependent (entity →
+  migration → repository → mapper; audit fix is small and independent but
+  was kept in this phase per the orchestrator's placement instruction), and
+  splitting the repository from its 22-case spec would violate the
+  "keep tests with code" work-unit rule. Two work-unit commits were still
+  made for reviewability (audit fix isolated from the property-images
+  schema work). Recommend the orchestrator/user treat PR 3 as an accepted
+  `size:exception` (or split its review into the two commits above) rather
+  than re-slicing the phase.
 
 ## Server-side steps required from the user (relay verbatim)
 
@@ -245,8 +333,9 @@ recreate).
 
 ## Status
 
-8/8 Phase 1 tasks complete, 19/19 Phase 2 tasks complete (27/~90 total tasks
-across all 6 phases). Ready for the user to review/merge PR 2
-(`feat/images-2-media-core` → `main`, or onto PR 1's branch per
-`stacked-to-main`) and for the next `sdd-apply` batch to start Phase 3. Do
-NOT start Phase 3 in this batch per the orchestrator's explicit scope limit.
+8/8 Phase 1 tasks complete, 19/19 Phase 2 tasks complete, 13/13 Phase 3
+tasks complete (40/~90 total tasks across all 6 phases). Phase 1 and 2 are
+merged to `main`. Ready for the user to review/merge PR 3
+(`feat/images-3-schema` → `main`, per `stacked-to-main`) and for the next
+`sdd-apply` batch to start Phase 4. Do NOT start Phase 4 in this batch per
+the orchestrator's explicit scope limit.
