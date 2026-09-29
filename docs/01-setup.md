@@ -65,9 +65,18 @@ cp .env.example .env
 | `SEED_ADMIN_PASSWORD` | Contraseña del usuario admin de prueba | `Admin1234!` |
 | `SEED_MANAGER_PASSWORD` | Contraseña del usuario manager de prueba | `Manager1234!` |
 | `SEED_USER_PASSWORD` | Contraseña del usuario user de prueba | `User1234!` |
+| `MEDIA_ROOT` | Carpeta donde se guardan las fotos de propiedades convertidas (WebP). Opcional: por defecto `storage/media` relativo al proyecto | `storage/media` |
+| `MEDIA_PUBLIC_BASE_URL` | URL pública base desde la que se sirven las fotos. Opcional en desarrollo (por defecto `http://localhost:<PORT>/media`); **obligatoria** y con `https:` si `NODE_ENV=production` | `http://localhost:3000/media` |
+| `MEDIA_SERVE_STATIC` | En desarrollo, sirve las fotos directamente desde Nest en `/media/*` (sin necesitar Caddy). Opcional, por defecto `false`; **rechazado** si `NODE_ENV=production` (ahí las sirve Caddy, ver `deploy/README.md` sección 6) | `true` |
 
 > Las contraseñas de seed del `.env.example` son públicas (están en el repo):
 > con `NODE_ENV=production` la app **se niega a sembrar** si siguen siendo esas.
+
+> **Nota sobre `MEDIA_*`:** estas tres variables no están en `.env.example`
+> (se documentan solo acá). Para ver las fotos subidas en desarrollo local sin
+> levantar Caddy, agregá `MEDIA_SERVE_STATIC=true` a tu `.env`; `MEDIA_ROOT` y
+> `MEDIA_PUBLIC_BASE_URL` pueden dejarse sin definir salvo que necesites un
+> valor distinto del default.
 
 ### Reglas de contraseña
 
