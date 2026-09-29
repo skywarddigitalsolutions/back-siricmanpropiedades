@@ -29,6 +29,12 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
 
+# Property photos are written under /app/storage/media (mounted from a named
+# Docker volume in production). Create it and hand ownership to "node" now,
+# so a fresh named volume mounted here still inherits writable ownership
+# for the user the container actually runs as.
+RUN mkdir -p /app/storage/media && chown -R node:node /app/storage
+
 # The "node" user/group already exists in the official node:22-alpine image.
 USER node
 

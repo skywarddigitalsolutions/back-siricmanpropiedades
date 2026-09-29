@@ -4,6 +4,9 @@
 # builds
 /dist
 
+# local dev media root (mirrors the container's /app/storage/media)
+/storage
+
 # environment
 .env
 .env.local

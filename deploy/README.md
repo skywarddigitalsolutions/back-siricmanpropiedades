@@ -129,7 +129,38 @@ docker compose up -d
 docker image prune -f   # borra las imágenes viejas que quedaron sueltas, para cuidar el disco
 ```
 
+Si la versión nueva agrega fotos de propiedades, aplicá primero la sección
+6 ("Fotos de propiedades") antes de este paso.
+
 ## 5. Primer ingreso como admin
 
 El primer login del usuario admin sembrado requiere configurar MFA (TOTP)
 obligatoriamente. Seguí la guía en `docs/04-login-mfa.md` del repo back.
+
+## 6. Fotos de propiedades (volumen de medios)
+
+Las fotos se guardan en el volumen de Docker `media_data`. La API lo usa con
+permisos de escritura y Caddy lo sirve en modo solo lectura bajo
+`https://api.<dominio>/media/...`. No se publica ningún puerto nuevo.
+
+Pasos (una sola vez, antes o junto con la versión que incluye las fotos):
+
+1. Copiar al servidor los archivos actualizados `compose.yml` y `Caddyfile`:
+   `scp -P 5941 deploy/compose.yml deploy/Caddyfile siricman:~/siricman/`
+2. Agregar al `.env` del servidor:
+   `MEDIA_PUBLIC_BASE_URL=https://api.<dominio>/media`
+   (sin barra final; la API no arranca en producción si falta).
+3. Aplicar los cambios: `docker compose pull && docker compose up -d`.
+4. Verificar:
+   - `docker compose logs api` no muestra errores de `MEDIA_*` ni de escritura.
+   - `docker compose exec api sh -c 'ls -ld /app/storage/media'` muestra al
+     usuario `node` como dueño.
+   - Después de subir una foto desde el panel:
+     `curl -I https://api.<dominio>/media/properties/<id>/<imagen>-thumb.webp`
+     responde `200` con `Cache-Control: public, max-age=31536000, immutable`.
+5. Control de espacio: `docker system df -v | grep media_data` o
+   `docker compose exec api du -sh /app/storage/media`.
+
+Importante: el respaldo diario de la base (`pg_dump`) no incluye las fotos.
+Si se elimina el volumen (`docker volume rm siricman_media_data`), las fotos
+se pierden de forma definitiva.
