@@ -5,8 +5,9 @@
 Phase 1 (infra slice, PR 1, tasks 1.1–1.8), Phase 2 (media core slice,
 PR 2, tasks 2.1–2.19), Phase 3 (schema + persistence + central
 `AuditLogService` fix, PR 3, tasks 3.1–3.13), Phase 4 (upload slice,
-PR 4, tasks 4.1–4.7), and Phase 5 (reorder + delete + admin `findOne` +
-hard-delete cleanup, PR 5, tasks 5.1–5.15). Phase 6 is not started.
+PR 4, tasks 4.1–4.7), Phase 5 (reorder + delete + admin `findOne` +
+hard-delete cleanup, PR 5, tasks 5.1–5.15), and Phase 6 (public catalog
+`coverImage`/`images`, PR 6, tasks 6.1–6.6). All 6 phases are complete.
 
 ## Mode
 
@@ -527,9 +528,91 @@ observing GREEN, exactly as the orchestrator's scope instructions required.
 | Runtime harness (manual DB check, Task 5.15) | Throwaway Postgres `siricman-migtest` (127.0.0.1:55432, migrations already applied). Built `dist/main.js` run with inline env vars (`MEDIA_ROOT`/`MEDIA_PUBLIC_BASE_URL`/`MEDIA_SERVE_STATIC=true` pointed at a temp dir, dummy 64-hex-char `JWT_SECRET`/`MFA_ENCRYPTION_KEY`, `RUN_SEED=false`, `PORT=3055`). A scratch `admin` role + user (self-signed JWT matching `JwtStrategy`'s `{ id, jti }` payload — confirmed `JwtStrategy.validate()` performs no MFA check per request, matching the prompt's fallback instruction) and two scratch properties were inserted directly via SQL (one general-purpose, one never-published for the hard-delete scenario). App booted cleanly on the first attempt (no `UnknownDependenciesException` this time — Phase 4's `@Optional()` fix already covers the DI path). **Upload**: 3 images uploaded to property 1 → `201` each, positions 0/1/2, correct non-upscaled dimensions. **Reorder**: a full permutation (`[img3,img1,img2]`) → `200` with positions rewritten to `0,1,2` in the new order; resubmitting the identical order → `200` with the same unchanged result (no-op, confirmed via exactly one `property.image_reordered` audit row despite two reorder requests); a foreign-id permutation → `400` `"imageIds is not an exact permutation..."`; a non-UUID entry → `400` DTO validation error. **Delete**: deleting the first image → `204`; admin `GET /:id` confirmed the remaining two images ordered ascending by position (`0`, `1`) with no gap, and the deleted image's `-lg.webp`/`-thumb.webp` files were confirmed absent on disk (`Get-ChildItem`) while the two surviving images' files remained; deleting an image scoped to a different (nonexistent) property id → `404`. **Hard delete**: uploaded 1 image to the never-published scratch property, then `DELETE /api/admin/properties/:id` → `204`; confirmed via `psql` that both the property row and its `property_images` row were gone (cascade), and confirmed via filesystem inspection that the property's entire media directory was removed. **Direct SQL constraint check**: a single-row `UPDATE` attempting to force a duplicate `(property_id, position)` inside its own transaction failed immediately with `duplicate key value violates unique constraint "UQ_property_images_property_position"` (positions unchanged) — direct proof the deferrable constraint is live and that the earlier full-permutation reorder's success depended on the set-based single-statement `UPDATE ... WITH ORDINALITY` avoiding any intra-statement duplicate, exactly as `design.md` specifies. App log showed zero warnings/errors across the whole session. App stopped cleanly (port 3055 confirmed not listening afterward); all scratch rows (role, user, user\_roles, both properties, their image rows, and the 7 matching `audit_logs` entries) and all local temp files/directories deleted and confirmed at 0 remaining. One pre-existing, unrelated `audit_logs` row (entity id `33333333-...`, action `property.image_uploaded`) was found already present in the shared fixture DB before this batch started — left untouched, as it predates this session and is out of this batch's scope. `siricman-migtest` left running (shared fixture, per Phase 3/4 precedent); no other container or database touched |
 | Rollback boundary | Revert the Phase-5 work-unit commits alone: admin `GET /:id` falls back to plain `findOne()` if `findOneWithImages`'s commit is reverted (both still exist as separate methods on `PropertiesService` until then); upload (Phase 4) keeps working independently of reorder/delete; the four Phase-5 commits are independently revertable in reverse order (admin wiring → hard-delete cleanup → controller routes → DTO+service reorder/delete) since each only adds new methods/routes without modifying Phase 4's upload path |
 
+## Completed Tasks — Phase 6
+
+- [x] 6.1/6.2 `src/properties/helpers/public-property.mapper.ts` (+
+      `.spec.ts`): `toPublicPropertyListItem(property, coverImage,
+      urls)` — `PublicPropertyResponse` plus `coverImage` (the
+      thumbnail URL of the position-0 image, or `null`); and
+      `toPublicPropertyDetail(property, images, urls)` —
+      `PublicPropertyResponse` plus the ordered `images` gallery, no
+      separate `coverImage` field. Both share the existing
+      `toPublicProperty` base projection and never serialize
+      `largeKey`/`thumbKey`/any filesystem path.
+- [x] 6.3/6.4 `src/properties/services/public-properties.service.ts` (+
+      `.spec.ts`): `findAll` keeps the existing paginated query
+      untouched, then calls `propertyImagesRepository
+      .findCoversByPropertyIds(ids)` exactly once for the page's
+      property ids — skipped entirely when the page is empty — and
+      maps each row through `toPublicPropertyListItem`; `findBySlug`
+      calls `propertyImagesRepository.findByPropertyId(property.id)`
+      and maps through `toPublicPropertyDetail`. Both new
+      dependencies (`PropertyImagesRepository`, `MediaUrlBuilder`)
+      were already provided by `PropertiesModule` (Phase 4/2 wiring),
+      so no module change was needed.
+- [x] 6.5 Verification — see Work Unit Evidence below.
+- [x] 6.6 Manual smoke check — see Work Unit Evidence below.
+
+## Deviations from Design — Phase 6
+
+1. **`coverImage` is the thumbnail URL string itself (`string | null`),
+   not `design.md`'s draft `{ url, width, height }` object.**
+   `design.md`'s "Decision: Response shapes" says "Public listing item:
+   existing `PublicPropertyResponse` + `coverImage: { url, width,
+   height } | null`". But `specs/property-public-catalog/spec.md`'s
+   "Cover Image in Public Listing" scenarios assert `coverImage` is
+   directly equal to / is a URL value ("that property's listing item
+   includes `coverImage` equal to that thumbnail URL"; "the
+   `coverImage` value is a fully-qualified public URL"), and
+   `proposal.md` independently describes it the same way three
+   separate times ("coverImage (thumbnail URL, or `null`)"). Per this
+   task list's own Reconciliation Note 1 ("specs win for external
+   contract names") and the orchestrator's preflight instruction
+   ("thumbnail/large URLs as the spec defines"), the spec/proposal's
+   string shape was implemented. `design.md` was not edited in place
+   to correct this (out of this batch's scope, and design.md line 12
+   already anticipates the specs taking precedence on response field
+   naming/shape when the two diverge); this note documents the
+   resolution instead, matching how Reconciliation Note 1 in this same
+   file resolved the analogous detail-`coverImage` conflict.
+
+No other deviations — `findAll`'s second-query approach (untouched
+paginated query, then one indexed `findCoversByPropertyIds` call,
+skipped on an empty page), `findBySlug`'s `findByPropertyId` gallery
+load, and the detail response having no separate `coverImage` field
+(cover = `images[0]`) all match `design.md`'s "Decision: Public catalog
+loading — second query, not a join" and Reconciliation Note 1 exactly.
+
+## Issues Found — Phase 6
+
+None.
+
+## TDD Cycle Evidence — Phase 6
+
+| Task pair | RED (observed failure before implementation) | GREEN (implementation) | REFACTOR | Verification |
+|---|---|---|---|---|
+| 6.1/6.2 `toPublicPropertyListItem`/`toPublicPropertyDetail` | Wrote the spec first (coverImage = thumbnail URL, coverImage: null with no images, no storage-key leak, base-field passthrough — 4 cases each for listing and detail, detail additionally asserting the ordered gallery and no separate coverImage field, and an empty-gallery case); `npx jest public-property.mapper` failed with `TS2724: has no exported member named 'toPublicPropertyDetail'`/`'toPublicPropertyListItem'` (module did not export them) | Implemented both functions reusing `toPublicProperty` and `toPublicPropertyImage`; re-ran and observed **15/15 passed** (7 prior `toPublicProperty` tests + 8 new: 4 `toPublicPropertyListItem` + 4 `toPublicPropertyDetail`) on the first implementation attempt | None needed — minimal, reuses existing projections | Live RED then GREEN observed this batch |
+| 6.3/6.4 `PublicPropertiesService.findAll`/`findBySlug` | Wrote the spec first (cover query call order/count/ids, empty-page skip, total/count unaffected, findBySlug gallery load + mapping); `npx jest public-properties.service` failed to compile with `TS2339: Property 'images' does not exist on type 'PublicPropertyResponse'` (return-type mismatch on the not-yet-updated `findBySlug`) | Implemented both methods per the orchestration above; re-ran and observed **7/7 passed** on the first implementation attempt | None needed | Live RED then GREEN observed this batch |
+
+**Honesty note**: every RED step in this batch was genuinely observed
+live in this session — a `TS2724` missing-export compile failure for
+the new mapper functions, then a `TS2339` return-type compile failure
+for the service — not reconstructed from an interrupted prior run.
+
+## Work Unit Evidence (Unit 6 — Public Catalog)
+
+| Evidence | Result |
+|---|---|
+| Focused test command | `npx jest public-property.mapper public-properties.service` → 15 + 7 = 22 passed; full command also run: `npm test` → **38 suites / 395 tests passed** (up from 38/385 at the end of Phase 5: +10 tests net new — 8 new mapper tests + 2 net new service tests, one added to `findAll` and one to `findBySlug`) |
+| Lint | `npm run lint` → clean on the second run (the first run's `--fix` reformatted the two new spec files' line wrapping; no logic changes) |
+| Typecheck | `npx tsc -p tsconfig.build.json --noEmit` → no errors |
+| Build | `npm run build` → success |
+| Runtime harness (manual smoke check, Task 6.6) | Throwaway Postgres `siricman-migtest` (127.0.0.1:55432, migrations already applied). Built `dist/main.js` run with inline env vars (`MEDIA_ROOT`/`MEDIA_PUBLIC_BASE_URL`/`MEDIA_SERVE_STATIC=true` pointed at a temp dir, dummy 64-hex-char `JWT_SECRET`/`MFA_ENCRYPTION_KEY`, `RUN_SEED=false`, `SWAGGER_ENABLED=false`, `PORT=3055`). Booted cleanly on the first attempt (no `UnknownDependenciesException` — Phase 4's `@Optional()` fix and Phase 4/5's module wiring already cover this path). A scratch `manager` role + user (self-signed JWT matching `JwtStrategy`'s `{ id }` payload) and two fresh scratch **published** properties (one general-purpose to receive images, one to stay imageless — not reused from Task 5.15, since that batch's own scratch property was already hard-deleted by its cleanup) were inserted directly via SQL. Uploaded 2 images to the first property (`201` each, positions 0/1). `GET /api/properties` → the imaged property's item carried `coverImage` equal to the position-0 image's thumbnail URL (verified byte-for-byte against the upload response); the imageless property's item carried `coverImage: null`; `total: 2` and 2 items returned either way. The cover URL resolved `200` via the dev static route. `GET /api/properties/:slug` (imaged property) → an ordered `images` array (2 entries, each with `url`/`width`/`height`/`thumbnailUrl`/`thumbnailWidth`/`thumbnailHeight`) and no `coverImage` field. `PUT .../images/order` reordering the two images → the listing's `coverImage` changed to the new position-0 image's thumbnail URL on the next `GET /api/properties` call, directly confirming "cover = `images[0]`" end-to-end. Grepped both the listing and detail JSON payloads for `largeKey`/`thumbKey`/`storage/media`/`MEDIA_ROOT` — no matches. App log showed zero warnings/errors across the whole session. App stopped (Windows PID resolved from the Nest boot log and force-killed, since the shell's own job PID did not map to the real `node` process under Git Bash on Windows — confirmed via `netstat` before and after); port 3055 confirmed not listening afterward. All scratch rows (role, user, user_roles, two properties, their two `property_images` rows, and the three matching `audit_logs` entries — 2 uploads + 1 reorder) and all local temp files/directories (test image, JSON response captures, SQL scripts, the temp `MEDIA_ROOT`) deleted and confirmed at 0 remaining. `siricman-migtest` left running (shared fixture, per Phase 3–5 precedent); no other container or database touched. One Windows-specific gotcha hit and worked around, not a code defect: Git Bash's `/tmp` and Node's POSIX-style `/tmp` resolve to different Windows directories on this machine (`C:\Users\...\AppData\Local\Temp` vs `C:\tmp`), so the first upload attempt failed locally with "no such file" until the test image was generated directly under Git Bash's `/tmp` |
+| Rollback boundary | Revert the two Phase-6 work-unit commits alone: `toPublicPropertyListItem`/`toPublicPropertyDetail` (mapper) and the `findAll`/`findBySlug` wiring (service) are purely additive response fields — no other code in the repository calls or depends on them (the front-end is out of scope for this change), so reverting drops `coverImage`/`images` from the public API with no effect on the admin surface (Phases 3–5) or existing public-catalog behavior (pagination, `total`, address privacy, publication scope) |
+
 ## Remaining Tasks
 
-- [ ] Phase 6 (6.1–6.6): Public catalog.
+None — all 6 phases (68/68 tasks) are complete.
 
 ## Workload / PR Boundary
 
@@ -594,6 +677,21 @@ observing GREEN, exactly as the orchestrator's scope instructions required.
   Recommend the orchestrator/user treat PR 5 as an accepted
   `size:exception` (or review it commit-by-commit) rather than
   re-slicing the phase.
+- Unit 6 — Public Catalog (PR 6, this batch, branch
+  `feat/images-6-public`, created fresh from `main` after PR 5 merged):
+  boundary starts from `main` (post-PR-5, `666ac56`) and ends at
+  `2115b81`. Two work-unit commits: `b024db6` (mapper —
+  `toPublicPropertyListItem`/`toPublicPropertyDetail`), `2115b81`
+  (service — `findAll`/`findBySlug` wiring).
+- **Budget flag (Unit 6)**: `git diff --stat -- . ':!openspec'` (no
+  prior commits on this branch yet at measurement time, so measured
+  against the working tree before committing) → **4 files changed, 363
+  insertions(+), 13 deletions(-)** = 376 changed lines — **within** the
+  400-line budget, matching `tasks.md`'s own ~200-line estimate order
+  of magnitude (the gap is mostly test code kept with its behavior, as
+  in every prior phase: `public-property.mapper.spec.ts` +134,
+  `public-properties.service.spec.ts` +130). No `size:exception`
+  needed for this slice.
 
 ## Server-side steps required from the user (relay verbatim)
 
@@ -620,9 +718,10 @@ recreate).
 ## Status
 
 8/8 Phase 1 tasks complete, 19/19 Phase 2 tasks complete, 13/13 Phase 3
-tasks complete, 7/7 Phase 4 tasks complete, 15/15 Phase 5 tasks complete
-(62/68 total tasks across all 6 phases). Phases 1–4 are merged to `main`.
-Ready for the user to review/merge PR 5 (`feat/images-5-manage` → `main`,
-per `stacked-to-main`) and for the next `sdd-apply` batch to start Phase 6
-(public catalog, tasks 6.1–6.6). Do NOT start Phase 6 in this batch per
-the orchestrator's explicit scope limit.
+tasks complete, 7/7 Phase 4 tasks complete, 15/15 Phase 5 tasks complete,
+6/6 Phase 6 tasks complete (**68/68 total tasks across all 6 phases —
+this change is fully implemented**). Phases 1–4 are merged to `main`.
+Ready for the user to review/merge PR 5 (`feat/images-5-manage` → `main`)
+and PR 6 (`feat/images-6-public` → `main`, per `stacked-to-main`). No
+`sdd-apply` work remains for `property-images`; next step is `sdd-verify`
+(optional) or `sdd-archive` once both remaining PRs are merged.
