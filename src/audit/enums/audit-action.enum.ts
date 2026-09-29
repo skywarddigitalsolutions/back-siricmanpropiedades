@@ -18,4 +18,7 @@ export enum AuditAction {
   PROPERTY_UNPUBLISHED = 'property.unpublished',
   PROPERTY_DEAL_STATUS_CHANGED = 'property.deal_status_changed',
   PROPERTY_DELETED = 'property.deleted',
+  PROPERTY_IMAGE_UPLOADED = 'property.image_uploaded',
+  PROPERTY_IMAGE_REORDERED = 'property.image_reordered',
+  PROPERTY_IMAGE_DELETED = 'property.image_deleted',
 }
