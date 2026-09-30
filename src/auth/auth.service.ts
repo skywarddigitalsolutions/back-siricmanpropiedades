@@ -97,11 +97,27 @@ export class AuthService {
    */
   buildSessionResponse(user: User) {
     return {
+      ...this.toSessionUser(user),
+      token: this.getJwtToken(user.id),
+    };
+  }
+
+  /**
+   * Proyección pública de la sesión: no rota ni revoca nada. Usada por
+   * buildSessionResponse(), checkAuthStatus() y por GET /auth/me (que no
+   * necesita ni debe emitir un token nuevo).
+   */
+  toSessionUser(user: User): {
+    id: string;
+    userName: string;
+    isActive: boolean;
+    roles: string[];
+  } {
+    return {
       id: user.id,
       userName: user.userName,
       isActive: user.isActive,
       roles: this.getRoleNames(user),
-      token: this.getJwtToken(user.id),
     };
   }
 
@@ -168,10 +184,7 @@ export class AuthService {
     await this.logout(currentToken);
 
     return {
-      id: user.id,
-      userName: user.userName,
-      isActive: user.isActive,
-      roles: this.getRoleNames(user),
+      ...this.toSessionUser(user),
       token: this.getJwtToken(user.id),
     };
   }
