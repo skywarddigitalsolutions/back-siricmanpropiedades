@@ -53,6 +53,11 @@ services:
     image: ghcr.io/skywarddigitalsolutions/siricmanpropiedades:latest
     restart: unless-stopped
     logging: *default-logging
+    environment:
+      # URL interna de la API dentro de la red de Docker; el front la usa
+      # como BFF para el panel de administración (no se publica ningún
+      # puerto, así que no hace falta un .env para esta variable).
+      API_INTERNAL_URL: http://api:3000
     depends_on:
       - api
 
