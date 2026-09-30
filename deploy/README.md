@@ -164,3 +164,41 @@ Pasos (una sola vez, antes o junto con la versión que incluye las fotos):
 Importante: el respaldo diario de la base (`pg_dump`) no incluye las fotos.
 Si se elimina el volumen (`docker volume rm siricman_media_data`), las fotos
 se pierden de forma definitiva.
+
+## 7. Panel de administración: sesión de administradores
+
+A partir de la versión del front que incluye el inicio de sesión del panel (`/admin`),
+el servicio `web` necesita la variable `API_INTERNAL_URL`. Ya está definida en
+`compose.yml` (`http://api:3000`): el front la usa para comunicarse con la API dentro
+de la red interna de Docker. No es necesario agregarla al `.env`.
+
+Orden de actualización:
+
+1. Copiar al servidor el `compose.yml` actualizado:
+   `scp -P 5941 deploy/compose.yml siricman:~/siricman/`
+2. Aplicar los cambios: `docker compose pull && docker compose up -d`.
+   Aplicar el `compose.yml` antes de que exista la imagen nueva del front no causa
+   problemas: la imagen anterior ignora la variable.
+3. Verificar: `docker compose exec web printenv API_INTERNAL_URL` debe mostrar
+   `http://api:3000`.
+
+IP real del visitante: la API limita los intentos por IP. Las solicitudes del panel
+llegan a la API desde el servidor de Next, por eso el front reenvía la IP real del
+visitante en el encabezado `X-Forwarded-For`, tomada del valor que agrega Caddy.
+Para que esto siga siendo seguro:
+
+- No publicar puertos de `api` ni de `web`; solo Caddy expone 80/443.
+- No configurar `trusted_proxies` en Caddy, salvo que se agregue un CDN o balanceador
+  delante. En ese caso, revisar esta sección antes del cambio.
+- Mantener `TRUST_PROXY=1` en el `.env` de la API.
+
+Comprobación manual después del deploy (límites independientes por IP):
+
+1. Desde una conexión A (por ejemplo, Wi-Fi), enviar seis intentos de login seguidos
+   con un usuario inexistente (por ejemplo, `prueba-a`). El sexto debe mostrar el
+   mensaje de demasiados intentos.
+2. Inmediatamente, desde una conexión B (por ejemplo, datos móviles), intentar el login
+   con otro usuario inexistente (`prueba-b`). Debe mostrar "Usuario o contraseña
+   incorrectos", no el mensaje de demasiados intentos.
+3. Si la conexión B también queda bloqueada, la IP no se está reenviando: revisar la
+   configuración de Caddy y los registros de `web`.

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Headers } from '@nestjs/common';
+import { Controller, Post, Body, Get, Header, Headers } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
   ApiOperation,
@@ -72,6 +72,28 @@ export class AuthController {
   ) {
     const token = authHeader?.replace('Bearer ', '');
     return this.authService.checkAuthStatus(user, token);
+  }
+
+  /**
+   * Usuario de la sesión actual (requiere token de sesión completa).
+   * No rota ni revoca el token: a diferencia de check-status, puede
+   * llamarse repetidas veces sin efectos secundarios.
+   * GET /api/auth/me
+   */
+  @ApiOperation({
+    summary: 'Usuario de la sesión actual',
+    description:
+      'No rota ni revoca el token. Rechaza tokens con scope (mfa_verify/mfa_setup).',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '{ id, userName, isActive, roles }',
+  })
+  @Get('me')
+  @Auth()
+  @Header('Cache-Control', 'no-store')
+  me(@GetUser() user: User) {
+    return this.authService.toSessionUser(user);
   }
 
   /**

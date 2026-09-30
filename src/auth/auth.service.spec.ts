@@ -281,6 +281,40 @@ describe('AuthService', () => {
     });
   });
 
+  describe('toSessionUser', () => {
+    it('maps the user entity and its roles to { id, userName, isActive, roles }', () => {
+      const user = {
+        id: 'user-id',
+        userName: 'john',
+        isActive: true,
+        userRoles: [{ role: { name: 'admin' } }, { role: { name: 'manager' } }],
+      } as any;
+
+      const result = service.toSessionUser(user);
+
+      expect(result).toEqual({
+        id: 'user-id',
+        userName: 'john',
+        isActive: true,
+        roles: ['admin', 'manager'],
+      });
+    });
+
+    it('does not sign a new token or revoke any token', () => {
+      const user = {
+        id: 'user-id',
+        userName: 'john',
+        isActive: true,
+        userRoles: [],
+      } as any;
+
+      service.toSessionUser(user);
+
+      expect(jwtService.sign).not.toHaveBeenCalled();
+      expect(revokedTokenRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
   describe('resolveUserFromToken', () => {
     it('resolves the user when the token scope is allowed', async () => {
       jwtService.verify.mockReturnValue({ id: 'user-id', jti: 'jti-1' });
