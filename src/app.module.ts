@@ -14,6 +14,7 @@ import { MfaModule } from './auth/mfa/mfa.module';
 import { NeighborhoodsModule } from './neighborhoods/neighborhoods.module';
 import { LeadsModule } from './leads/leads.module';
 import { PropertiesModule } from './properties/properties.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { PropertiesModule } from './properties/properties.module';
     NeighborhoodsModule,
     PropertiesModule,
     LeadsModule,
+    HealthModule,
   ],
   providers: [
     {
