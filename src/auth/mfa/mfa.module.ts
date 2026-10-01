@@ -15,5 +15,6 @@ import { AuditModule } from '../../audit/audit.module';
   ],
   controllers: [MfaController],
   providers: [MfaService],
+  exports: [MfaService],
 })
 export class MfaModule {}

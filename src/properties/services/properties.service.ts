@@ -44,6 +44,17 @@ import {
   toPropertyImageResponse,
 } from '../helpers/property-image.mapper';
 
+/** Admin list row: the property plus its cover thumbnail and photo count. */
+export type AdminPropertyListItem = Property & {
+  coverThumbnailUrl: string | null;
+  imageCount: number;
+};
+
+/** Admin list page plus per-publication-status counts (see `findAll`). */
+export type AdminPropertyList = Paginated<AdminPropertyListItem> & {
+  counts: Record<PublicationStatus, number>;
+};
+
 /**
  * `CreatePropertyDto` keys that `update()` diffs and applies generically.
  * `code`, `slug`, `publicationStatus`, `dealStatus`, `firstPublishedAt` are
@@ -276,9 +287,7 @@ export class PropertiesService {
    * `buildAdminPropertyQuery`. No status is forced (unlike the public
    * catalog): admins see every status unless they filter to one.
    */
-  async findAll(
-    filters: AdminPropertyFiltersDto,
-  ): Promise<Paginated<Property>> {
+  async findAll(filters: AdminPropertyFiltersDto): Promise<AdminPropertyList> {
     const spec = buildAdminPropertyQuery(filters);
 
     const queryBuilder = this.propertyRepository
@@ -296,8 +305,53 @@ export class PropertiesService {
 
     queryBuilder.take(spec.take).skip(spec.skip);
 
-    const [items, total] = await queryBuilder.getManyAndCount();
-    return { items, total };
+    const [rows, total] = await queryBuilder.getManyAndCount();
+    const ids = rows.map((row) => row.id);
+    // Two batched queries for the whole page, never one per row.
+    const [covers, imageCounts, counts] = await Promise.all([
+      this.propertyImagesRepository.findCoversByPropertyIds(ids),
+      this.propertyImagesRepository.countByPropertyIds(ids),
+      this.countByPublicationStatus(filters),
+    ]);
+    const coverKeys = new Map(covers.map((c) => [c.propertyId, c.thumbKey]));
+
+    const items = rows.map((row) => {
+      const thumbKey = coverKeys.get(row.id);
+      return {
+        ...row,
+        coverThumbnailUrl: thumbKey
+          ? this.mediaUrlBuilder.toUrl(thumbKey)
+          : null,
+        imageCount: imageCounts.get(row.id) ?? 0,
+      };
+    });
+    return { items, total, counts };
+  }
+
+  /** Per-status totals under every filter except `publicationStatus`. */
+  private async countByPublicationStatus(
+    filters: AdminPropertyFiltersDto,
+  ): Promise<Record<PublicationStatus, number>> {
+    const spec = buildAdminPropertyQuery({
+      ...filters,
+      publicationStatus: undefined,
+    });
+    const query = this.propertyRepository
+      .createQueryBuilder(PROPERTY_ALIAS)
+      .select(`${PROPERTY_ALIAS}.publicationStatus`, 'status')
+      .addSelect('COUNT(*)', 'count');
+    for (const clause of spec.where) query.andWhere(clause.sql, clause.params);
+    const rows = await query
+      .groupBy(`${PROPERTY_ALIAS}.publicationStatus`)
+      .getRawMany<{ status: PublicationStatus; count: string }>();
+
+    const counts = {
+      [PublicationStatus.DRAFT]: 0,
+      [PublicationStatus.PUBLISHED]: 0,
+      [PublicationStatus.ARCHIVED]: 0,
+    };
+    for (const row of rows) counts[row.status] = Number(row.count);
+    return counts;
   }
 
   /**

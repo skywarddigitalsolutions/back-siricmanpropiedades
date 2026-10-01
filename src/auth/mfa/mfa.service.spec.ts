@@ -380,4 +380,45 @@ describe('MfaService', () => {
       expect(isValid).toBe(false);
     });
   });
+
+  describe('verifyTotpOnly', () => {
+    it('accepts a valid TOTP but never a backup code', async () => {
+      const secret = authenticator.generateSecret();
+      userRepository.findOne.mockResolvedValue({
+        id: 'user-9',
+        mfaEnabled: true,
+        mfaSecret: encryptSecret(secret, TEST_ENCRYPTION_KEY),
+      });
+
+      await expect(
+        service.verifyTotpOnly('user-9', 'abcdef1234'),
+      ).resolves.toBe(false);
+      expect(backupCodeRepository.find).not.toHaveBeenCalled();
+      await expect(
+        service.verifyTotpOnly('user-9', authenticator.generate(secret)),
+      ).resolves.toBe(true);
+    });
+  });
+
+  describe('regenerateBackupCodes', () => {
+    it('replaces the old codes with 10 new hashed ones and audits it', async () => {
+      const actor = { id: 'user-1', userName: 'john' };
+
+      const codes = await service.regenerateBackupCodes('user-1', actor);
+
+      expect(codes).toHaveLength(10);
+      expect(backupCodeRepository.delete).toHaveBeenCalledWith({
+        userId: 'user-1',
+      });
+      const saved = backupCodeRepository.save.mock.calls[0][0];
+      expect(saved).toHaveLength(10);
+      expect(saved[0].codeHash).not.toBe(codes[0]);
+      expect(auditLogService.record).toHaveBeenCalledWith({
+        actor,
+        action: 'mfa.backup_codes_regenerated',
+        entityType: 'user',
+        entityId: 'user-1',
+      });
+    });
+  });
 });

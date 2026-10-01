@@ -191,6 +191,35 @@ export class MfaService {
     return this.verifyCodeOrBackupCode(user, code);
   }
 
+  /** Solo TOTP (nunca un código de respaldo): para acciones que lo exigen. */
+  async verifyTotpOnly(userId: string, code: string): Promise<boolean> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      select: { id: true, mfaSecret: true, mfaEnabled: true },
+    });
+    if (!user?.mfaEnabled || !user.mfaSecret) return false;
+    const secret = decryptSecret(user.mfaSecret, this.encryptionKey);
+    return this.verifyTotp(userId, secret, code);
+  }
+
+  /**
+   * Reemplaza todos los códigos de respaldo por 10 nuevos (texto plano una
+   * única vez). El llamador ya verificó el TOTP.
+   */
+  async regenerateBackupCodes(
+    userId: string,
+    actor: AuditActor,
+  ): Promise<string[]> {
+    const codes = await this.generateBackupCodes(userId);
+    await this.auditLogService.record({
+      actor,
+      action: AuditAction.MFA_BACKUP_CODES_REGENERATED,
+      entityType: 'user',
+      entityId: userId,
+    });
+    return codes;
+  }
+
   private async verifyCodeOrBackupCode(
     user: Pick<User, 'id' | 'mfaSecret'>,
     code: string,

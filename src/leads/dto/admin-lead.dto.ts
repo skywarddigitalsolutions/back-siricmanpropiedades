@@ -3,6 +3,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -10,6 +11,9 @@ import {
 import { Transform, Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { LeadStatus, LeadType } from '../enums/lead.enums';
+
+const trim = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
 
 /** Query for `GET /api/admin/leads`. */
 export class AdminLeadFiltersDto {
@@ -22,6 +26,21 @@ export class AdminLeadFiltersDto {
   @IsOptional()
   @IsEnum(LeadType)
   type?: LeadType;
+
+  @ApiPropertyOptional({ format: 'uuid', description: 'Only this property' })
+  @IsOptional()
+  @IsUUID()
+  propertyId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Matches name, email, phone or message',
+    maxLength: 100,
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 
   @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100 })
   @IsOptional()
@@ -38,9 +57,6 @@ export class AdminLeadFiltersDto {
   @Min(0)
   offset?: number;
 }
-
-const trim = ({ value }: { value: unknown }) =>
-  typeof value === 'string' ? value.trim() : value;
 
 /** Body for `PATCH /api/admin/leads/:id`: progress and internal notes only. */
 export class UpdateLeadDto {

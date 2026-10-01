@@ -18,15 +18,16 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { PropertiesService } from '../services/properties.service';
+import {
+  AdminPropertyList,
+  PropertiesService,
+} from '../services/properties.service';
 import {
   AdminPropertyFiltersDto,
   CreatePropertyDto,
   UpdateDealStatusDto,
   UpdatePropertyDto,
 } from '../dto';
-import { Property } from '../entities/property.entity';
-import { Paginated } from '../../common/interfaces/paginated.interface';
 import { Auth, GetUser, RoleProtected } from '../../auth/decorators';
 import { ValidRoles } from '../../auth/interfaces';
 import { User } from '../../users/entities/user.entity';
@@ -63,7 +64,7 @@ export class AdminPropertiesController {
   @Get()
   findAll(
     @Query() filters: AdminPropertyFiltersDto,
-  ): Promise<Paginated<Property>> {
+  ): Promise<AdminPropertyList> {
     return this.propertiesService.findAll(filters);
   }
 

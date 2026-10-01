@@ -202,6 +202,19 @@ export class PropertyImagesRepository {
     });
   }
 
+  /** Image count per property, in one grouped query; absent = no images. */
+  async countByPropertyIds(ids: string[]): Promise<Map<string, number>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.dataSource.manager.query<
+      Array<{ propertyId: string; count: number }>
+    >(
+      `SELECT property_id AS "propertyId", COUNT(*)::int AS count
+       FROM property_images WHERE property_id = ANY($1) GROUP BY property_id`,
+      [ids],
+    );
+    return new Map(rows.map((r) => [r.propertyId, r.count]));
+  }
+
   findCoversByPropertyIds(ids: string[]): Promise<PropertyImage[]> {
     if (ids.length === 0) return Promise.resolve<PropertyImage[]>([]);
     const repository = this.dataSource.manager.getRepository(PropertyImage);

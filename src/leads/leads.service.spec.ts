@@ -58,7 +58,7 @@ describe('LeadsService', () => {
     leadRepository = {
       create: jest.fn((data) => data),
       save: jest.fn(async (lead) => ({ id: 'lead-1', ...lead })),
-      findAndCount: jest.fn(),
+      createQueryBuilder: jest.fn(),
       findOne: jest.fn(),
       remove: jest.fn(),
     };
@@ -122,6 +122,20 @@ describe('LeadsService', () => {
       expect(saved?.id).toBe('lead-1');
     });
 
+    it('stores the email lowercased and trimmed even if the DTO was not transformed', async () => {
+      await service.submit(
+        inquiry({
+          propertyId: undefined,
+          type: LeadType.CONTACT,
+          email: ' Juan@X.com ',
+        }),
+      );
+
+      expect(leadRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ email: 'juan@x.com' }),
+      );
+    });
+
     it('saves a contact message without a property', async () => {
       await service.submit(
         inquiry({
@@ -146,22 +160,54 @@ describe('LeadsService', () => {
   });
 
   describe('findAll', () => {
+    function chainable(rows: Lead[], total: number, counts: any[] = []) {
+      const listQb: any = {};
+      for (const m of [
+        'leftJoinAndSelect',
+        'andWhere',
+        'orderBy',
+        'addOrderBy',
+        'take',
+        'skip',
+      ])
+        listQb[m] = jest.fn(() => listQb);
+      listQb.getManyAndCount = jest.fn(async () => [rows, total]);
+      const countQb: any = {};
+      for (const m of ['select', 'addSelect', 'andWhere', 'groupBy'])
+        countQb[m] = jest.fn(() => countQb);
+      countQb.getRawMany = jest.fn(async () => counts);
+      leadRepository.createQueryBuilder
+        .mockReturnValueOnce(listQb)
+        .mockReturnValueOnce(countQb);
+      return { listQb, countQb };
+    }
+
     it('filters, paginates newest first and summarizes the property', async () => {
-      leadRepository.findAndCount.mockResolvedValue([[storedLead()], 1]);
+      const { listQb } = chainable([storedLead()], 1);
 
       const result = await service.findAll({
         status: LeadStatus.NEW,
+        propertyId: PROPERTY_ID,
         limit: 10,
         offset: 20,
       });
 
-      expect(leadRepository.findAndCount).toHaveBeenCalledWith({
-        where: { status: LeadStatus.NEW },
-        relations: { property: true },
-        order: { createdAt: 'DESC', id: 'DESC' },
-        take: 10,
-        skip: 20,
+      expect(leadRepository.createQueryBuilder).toHaveBeenCalledWith('lead');
+      expect(listQb.leftJoinAndSelect).toHaveBeenCalledWith(
+        'lead.property',
+        'property',
+      );
+      expect(listQb.andWhere).toHaveBeenCalledWith('lead.status = :status', {
+        status: LeadStatus.NEW,
       });
+      expect(listQb.andWhere).toHaveBeenCalledWith(
+        'lead.property = :propertyId',
+        { propertyId: PROPERTY_ID },
+      );
+      expect(listQb.orderBy).toHaveBeenCalledWith('lead.createdAt', 'DESC');
+      expect(listQb.addOrderBy).toHaveBeenCalledWith('lead.id', 'DESC');
+      expect(listQb.take).toHaveBeenCalledWith(10);
+      expect(listQb.skip).toHaveBeenCalledWith(20);
       expect(result.total).toBe(1);
       expect(result.items[0].property).toEqual({
         id: PROPERTY_ID,
@@ -172,13 +218,32 @@ describe('LeadsService', () => {
     });
 
     it('defaults to 20 per page from the start', async () => {
-      leadRepository.findAndCount.mockResolvedValue([[], 0]);
+      const { listQb } = chainable([], 0);
 
       await service.findAll({});
 
-      expect(leadRepository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({ where: {}, take: 20, skip: 0 }),
-      );
+      expect(listQb.andWhere).not.toHaveBeenCalled();
+      expect(listQb.take).toHaveBeenCalledWith(20);
+      expect(listQb.skip).toHaveBeenCalledWith(0);
+    });
+
+    it('counts per status with every filter except status, zero-filled', async () => {
+      const { countQb } = chainable([], 0, [
+        { status: LeadStatus.NEW, count: '3' },
+        { status: LeadStatus.CLOSED, count: '1' },
+      ]);
+
+      const result = await service.findAll({
+        status: LeadStatus.CLOSED,
+        type: LeadType.CONTACT,
+        q: 'ana',
+      });
+
+      const clauses = countQb.andWhere.mock.calls.map((c: any[]) => c[0]);
+      expect(clauses).toContain('lead.type = :type');
+      expect(clauses).not.toContain('lead.status = :status');
+      expect(countQb.groupBy).toHaveBeenCalledWith('lead.status');
+      expect(result.counts).toEqual({ new: 3, contacted: 0, closed: 1 });
     });
   });
 

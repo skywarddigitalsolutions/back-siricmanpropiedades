@@ -7,6 +7,8 @@ export enum AuditAction {
   USER_ACTIVATED = 'user.activated',
   USER_DEACTIVATED = 'user.deactivated',
   USER_PASSWORD_RESET = 'user.password_reset',
+  PASSWORD_CHANGED = 'user.password_changed',
+  MFA_BACKUP_CODES_REGENERATED = 'mfa.backup_codes_regenerated',
   ROLE_ASSIGNED = 'role.assigned',
   MFA_ENABLED = 'mfa.enabled',
   MFA_DISABLED = 'mfa.disabled',
@@ -23,4 +25,5 @@ export enum AuditAction {
   PROPERTY_IMAGE_DELETED = 'property.image_deleted',
   LEAD_UPDATED = 'lead.updated',
   LEAD_DELETED = 'lead.deleted',
+  CLIENTS_EXPORTED = 'clients.exported',
 }

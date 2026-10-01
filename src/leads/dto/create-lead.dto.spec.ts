@@ -42,6 +42,15 @@ describe('CreateLeadDto', () => {
     expect(dto.type).toBe(LeadType.PROPERTY_INQUIRY);
   });
 
+  it('lowercases and trims the email', async () => {
+    const dto = (await pipe.transform(
+      validInquiry({ email: '  Juan@X.COM ' }),
+      asBody,
+    )) as CreateLeadDto;
+
+    expect(dto.email).toBe('juan@x.com');
+  });
+
   it('requires a phone or an email, but not both', async () => {
     expect(
       await errorsFor(

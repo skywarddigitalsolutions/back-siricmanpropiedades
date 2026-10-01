@@ -40,6 +40,11 @@ export class LoginThrottleService {
     return `mfa:${userId}`;
   }
 
+  /** Clave del cambio de contraseña: contraseña actual incorrecta, por usuario. */
+  static passwordChangeKey(userId: string): string {
+    return `pwchange:${userId}`;
+  }
+
   /** Lanza 429 si la clave está bloqueada por intentos fallidos. */
   assertNotLocked(key: string): void {
     const record = this.attempts.get(key);

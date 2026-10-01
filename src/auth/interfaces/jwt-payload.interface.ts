@@ -8,4 +8,6 @@ export interface JwtPayload {
   id: string;
   jti: string;
   scope?: 'mfa_verify' | 'mfa_setup';
+  /** Issued-at (seconds); added by the JWT library when signing. */
+  iat?: number;
 }

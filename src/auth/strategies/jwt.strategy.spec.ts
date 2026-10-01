@@ -75,6 +75,24 @@ describe('JwtStrategy', () => {
     ).rejects.toThrow(UnauthorizedException);
   });
 
+  it('rejects a token issued before the last password change, keeps later ones', async () => {
+    revokedTokenRepository.findOne.mockResolvedValue(null);
+    const changedAt = new Date('2026-10-01T12:00:00.500Z');
+    const sec = Math.floor(changedAt.getTime() / 1000);
+    userRepository.findOne.mockResolvedValue({
+      id: 'user-1',
+      isActive: true,
+      passwordChangedAt: changedAt,
+    });
+
+    await expect(
+      strategy.validate({ id: 'user-1', jti: 'j', iat: sec - 1 }),
+    ).rejects.toThrow(UnauthorizedException);
+    await expect(
+      strategy.validate({ id: 'user-1', jti: 'j', iat: sec }),
+    ).resolves.toMatchObject({ id: 'user-1' });
+  });
+
   it('returns the user for a valid, non-scoped, non-revoked token', async () => {
     revokedTokenRepository.findOne.mockResolvedValue(null);
     userRepository.findOne.mockResolvedValue({ id: 'user-1', isActive: true });

@@ -49,6 +49,17 @@ export class User {
   })
   mfaConfirmedAt: Date | null;
 
+  /**
+   * Last password change (self-service, admin reset or operator command).
+   * JwtStrategy rejects tokens issued before it, closing every other session.
+   */
+  @Column({
+    name: 'password_changed_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  passwordChangedAt: Date | null;
+
   @CreateDateColumn({
     name: 'created_at',
     type: 'timestamp without time zone',

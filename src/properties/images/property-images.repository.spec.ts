@@ -44,6 +44,31 @@ describe('PropertyImagesRepository', () => {
     repository = new PropertyImagesRepository(dataSource as any);
   });
 
+  describe('countByPropertyIds', () => {
+    it('returns a map of image counts with one grouped query', async () => {
+      readManager.query.mockResolvedValueOnce([
+        { propertyId: 'p1', count: 3 },
+        { propertyId: 'p2', count: 1 },
+      ]);
+
+      const counts = await repository.countByPropertyIds(['p1', 'p2', 'p3']);
+
+      expect(readManager.query).toHaveBeenCalledWith(
+        expect.stringContaining('= ANY($1)'),
+        [['p1', 'p2', 'p3']],
+      );
+      expect(counts.get('p1')).toBe(3);
+      expect(counts.get('p3')).toBeUndefined();
+    });
+
+    it('skips the query for an empty list', async () => {
+      const counts = await repository.countByPropertyIds([]);
+
+      expect(counts.size).toBe(0);
+      expect(readManager.query).not.toHaveBeenCalled();
+    });
+  });
+
   describe('propertyExists', () => {
     it('returns true when the property row exists', async () => {
       readManager.query.mockResolvedValueOnce([{ exists: 1 }]);

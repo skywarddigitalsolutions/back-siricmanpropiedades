@@ -15,6 +15,8 @@ import { NeighborhoodsModule } from './neighborhoods/neighborhoods.module';
 import { LeadsModule } from './leads/leads.module';
 import { PropertiesModule } from './properties/properties.module';
 import { HealthModule } from './health/health.module';
+import { AccountModule } from './auth/account/account.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -57,6 +59,8 @@ import { HealthModule } from './health/health.module';
     PropertiesModule,
     LeadsModule,
     HealthModule,
+    AccountModule,
+    DashboardModule,
   ],
   providers: [
     {

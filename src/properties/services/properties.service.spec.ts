@@ -368,10 +368,40 @@ describe('PropertiesService', () => {
       return queryBuilder;
     }
 
-    it('joins the neighborhood, applies every where clause and the order/take/skip from the spec, and returns { items, total }', async () => {
+    function countsQueryBuilder(rows: unknown[] = []) {
+      const queryBuilder: Record<string, jest.Mock> = {};
+      for (const method of ['select', 'addSelect', 'andWhere', 'groupBy']) {
+        queryBuilder[method] = jest.fn(() => queryBuilder);
+      }
+      queryBuilder.getRawMany = jest.fn(async () => rows);
+      return queryBuilder;
+    }
+
+    function mockQueries(
+      rows: unknown[],
+      total: number,
+      counts: unknown[] = [],
+    ) {
+      const list = chainableQueryBuilder(rows, total);
+      const countQb = countsQueryBuilder(counts);
+      propertyRepository.createQueryBuilder
+        .mockReturnValueOnce(list)
+        .mockReturnValueOnce(countQb);
+      return { list, countQb };
+    }
+
+    beforeEach(() => {
+      propertyImagesRepository.findCoversByPropertyIds = jest
+        .fn()
+        .mockResolvedValue([]);
+      propertyImagesRepository.countByPropertyIds = jest
+        .fn()
+        .mockResolvedValue(new Map());
+    });
+
+    it('joins the neighborhood, applies every where clause and the order/take/skip from the spec', async () => {
       const rows = [{ id: 'property-1' }, { id: 'property-2' }];
-      const queryBuilder = chainableQueryBuilder(rows, 2);
-      propertyRepository.createQueryBuilder.mockReturnValue(queryBuilder);
+      const { list: queryBuilder } = mockQueries(rows, 2);
 
       const result = await service.findAll({
         publicationStatus: PublicationStatus.DRAFT,
@@ -398,37 +428,83 @@ describe('PropertiesService', () => {
       );
       expect(queryBuilder.take).toHaveBeenCalledWith(20);
       expect(queryBuilder.skip).toHaveBeenCalledWith(0);
-      expect(result).toEqual({ items: rows, total: 2 });
+      expect(result.total).toBe(2);
+      expect(result.items.map((i) => i.id)).toEqual([
+        'property-1',
+        'property-2',
+      ]);
     });
 
     it('returns properties of every publication status when no filter is given', async () => {
       const rows = [
         { id: 'property-1', publicationStatus: PublicationStatus.DRAFT },
         { id: 'property-2', publicationStatus: PublicationStatus.PUBLISHED },
-        { id: 'property-3', publicationStatus: PublicationStatus.ARCHIVED },
       ];
-      const queryBuilder = chainableQueryBuilder(rows, 3);
-      propertyRepository.createQueryBuilder.mockReturnValue(queryBuilder);
+      const { list } = mockQueries(rows, 2);
 
       const result = await service.findAll({});
 
-      expect(queryBuilder.andWhere).not.toHaveBeenCalled();
-      expect(result).toEqual({ items: rows, total: 3 });
+      expect(list.andWhere).not.toHaveBeenCalled();
+      expect(result.items).toHaveLength(2);
     });
 
-    it('applies no where clause beyond the requested publicationStatus when filtering', async () => {
-      const rows = [
-        { id: 'property-1', publicationStatus: PublicationStatus.DRAFT },
-      ];
-      const queryBuilder = chainableQueryBuilder(rows, 1);
-      propertyRepository.createQueryBuilder.mockReturnValue(queryBuilder);
+    it('adds coverThumbnailUrl and imageCount with two batched queries (no N+1)', async () => {
+      const rows = [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }];
+      mockQueries(rows, 3);
+      propertyImagesRepository.findCoversByPropertyIds.mockResolvedValue([
+        { propertyId: 'p1', thumbKey: 'properties/p1/a-thumb.webp' },
+      ]);
+      propertyImagesRepository.countByPropertyIds.mockResolvedValue(
+        new Map([['p1', 4]]),
+      );
+
+      const { items } = await service.findAll({});
+
+      expect(
+        propertyImagesRepository.findCoversByPropertyIds,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        propertyImagesRepository.findCoversByPropertyIds,
+      ).toHaveBeenCalledWith(['p1', 'p2', 'p3']);
+      expect(propertyImagesRepository.countByPropertyIds).toHaveBeenCalledWith([
+        'p1',
+        'p2',
+        'p3',
+      ]);
+      expect(items[0]).toMatchObject({
+        id: 'p1',
+        coverThumbnailUrl: 'https://media.test/properties/p1/a-thumb.webp',
+        imageCount: 4,
+      });
+      expect(items[1]).toMatchObject({
+        id: 'p2',
+        coverThumbnailUrl: null,
+        imageCount: 0,
+      });
+    });
+
+    it('counts per publication status with every filter except publicationStatus, zero-filled', async () => {
+      const { countQb } = mockQueries([], 0, [
+        { status: PublicationStatus.DRAFT, count: '2' },
+        { status: PublicationStatus.PUBLISHED, count: '5' },
+      ]);
 
       const result = await service.findAll({
-        publicationStatus: PublicationStatus.DRAFT,
+        publicationStatus: PublicationStatus.PUBLISHED,
+        q: 'palermo',
       });
 
-      expect(queryBuilder.andWhere).toHaveBeenCalledTimes(1);
-      expect(result).toEqual({ items: rows, total: 1 });
+      const clauses = countQb.andWhere.mock.calls.map((c) => c[0] as string);
+      expect(clauses.some((c) => c.includes(':q'))).toBe(true);
+      expect(clauses.some((c) => c.includes(':publicationStatus'))).toBe(false);
+      expect(countQb.groupBy).toHaveBeenCalledWith(
+        'property.publicationStatus',
+      );
+      expect(result.counts).toEqual({
+        draft: 2,
+        published: 5,
+        archived: 0,
+      });
     });
   });
 

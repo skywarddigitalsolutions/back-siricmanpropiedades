@@ -109,9 +109,73 @@ describe('buildAdminPropertyQuery', () => {
     const spec = buildAdminPropertyQuery(filters({ q: '50%_off' }));
 
     expect(spec.where).toContainEqual({
-      sql: `(${PROPERTY_ALIAS}.title ILIKE :q OR ${PROPERTY_ALIAS}.code ILIKE :q)`,
+      sql: `(${PROPERTY_ALIAS}.title ILIKE :q OR ${PROPERTY_ALIAS}.code ILIKE :q OR ${PROPERTY_ALIAS}.address ILIKE :q)`,
       params: { q: '%50\\%\\_off%' },
     });
+  });
+
+  it('filters by currency when given', () => {
+    const spec = buildAdminPropertyQuery(filters({ currency: Currency.USD }));
+
+    expect(spec.where).toContainEqual({
+      sql: `${PROPERTY_ALIAS}.currency = :currency`,
+      params: { currency: Currency.USD },
+    });
+  });
+
+  it('filters by hasImages with a constant EXISTS / NOT EXISTS subquery', () => {
+    const withImages = buildAdminPropertyQuery(filters({ hasImages: true }));
+    const without = buildAdminPropertyQuery(filters({ hasImages: false }));
+
+    expect(withImages.where).toEqual([
+      {
+        sql: `EXISTS (SELECT 1 FROM property_images pi WHERE pi.property_id = ${PROPERTY_ALIAS}.id)`,
+        params: {},
+      },
+    ]);
+    expect(without.where[0].sql).toMatch(
+      /^NOT EXISTS \(SELECT 1 FROM property_images/,
+    );
+  });
+
+  it.each([
+    ['updatedAt', 'asc', 'ASC'],
+    ['createdAt', 'desc', 'DESC'],
+  ] as const)(
+    'sorts by %s %s from the whitelist, id as tiebreaker',
+    (sort, order, direction) => {
+      const spec = buildAdminPropertyQuery(filters({ sort, order }));
+
+      expect(spec.orderBy).toEqual([
+        { column: `${PROPERTY_ALIAS}.${sort}`, direction },
+        { column: `${PROPERTY_ALIAS}.id`, direction },
+      ]);
+    },
+  );
+
+  it('sorts by price within a currency', () => {
+    const spec = buildAdminPropertyQuery(
+      filters({ sort: 'price', order: 'asc', currency: Currency.ARS }),
+    );
+
+    expect(spec.orderBy[0]).toEqual({
+      column: `${PROPERTY_ALIAS}.price`,
+      direction: 'ASC',
+    });
+  });
+
+  it('rejects sorting by price without a currency', () => {
+    expect(() => buildAdminPropertyQuery(filters({ sort: 'price' }))).toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('never lets an unknown sort reach ORDER BY', () => {
+    const spec = buildAdminPropertyQuery(
+      filters({ sort: 'title; DROP TABLE x' as never }),
+    );
+
+    expect(spec.orderBy[0].column).toBe(`${PROPERTY_ALIAS}.createdAt`);
   });
 
   it('defaults to ordering by createdAt DESC, id DESC', () => {
