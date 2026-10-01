@@ -352,7 +352,7 @@ La restauración **reemplaza** la base actual. Pasos:
    respaldo falla o se omite por falta de disco, la restauración se cancela sin
    cambios.
 5. Detiene la API (`docker compose stop api`), restaura con
-   `pg_restore --clean --if-exists --no-owner` y vuelve a iniciar la API, incluso
+   `pg_restore --clean --if-exists --no-owner --single-transaction` (si algo falla, la base queda como estaba) y vuelve a iniciar la API, incluso
    si la restauración falla.
 6. Verificá: `docker compose ps`, `docker compose logs --tail 50 api` y el sitio y
    el panel en el navegador.

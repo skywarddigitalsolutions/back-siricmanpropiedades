@@ -47,6 +47,10 @@
 - 2026-10-01 T3: harness RED (3 FAIL for the happy/failure-restart paths), GREEN 15/15 after `pg-restore.sh`.
 - 2026-10-01 T4: runbook section 10 added, section 6 media note updated (photos covered by DonWeb weekly backup).
 
+- 2026-10-01: fix commit `fix(deploy): restore dumps in a single transaction` (all-or-nothing restore); back PR #27 merged, GHCR build green.
+- 2026-10-01 rollout (run by the user): the server was still on the feature 2 deploy, so the first `pull` crashed the API (`MEDIA_PUBLIC_BASE_URL is required`). Applied runbook sections 6-8 (new `compose.yml` + `Caddyfile`, `MEDIA_PUBLIC_BASE_URL` in `.env`); `/api/health` 200, site 200, `API_INTERNAL_URL`/`SITE_URL` correct, all 4 containers Up.
+- 2026-10-01 rollout: DB size 8303 kB; disk 34G, 29G free; first manual dump `siricman-20261001-114324.dump` (33K) OK; crontab `30 3 * * *` installed (server clock is UTC-3, so 03:30 local); UptimeRobot monitors for the site and `/api/health` Up at a 5-minute interval with email alerts.
+
 ## Next step
 
-user: deploy runbook section 10 on the server.
+Feature done. Check `~/siricman/backups/backup.log` after the first nightly run (2026-10-02 03:30).
