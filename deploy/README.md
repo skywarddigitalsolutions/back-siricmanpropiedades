@@ -161,9 +161,11 @@ Pasos (una sola vez, antes o junto con la versión que incluye las fotos):
 5. Control de espacio: `docker system df -v | grep media_data` o
    `docker compose exec api du -sh /app/storage/media`.
 
-Importante: el respaldo diario de la base (`pg_dump`) no incluye las fotos.
-Si se elimina el volumen (`docker volume rm siricman_media_data`), las fotos
-se pierden de forma definitiva.
+Importante: el respaldo diario de la base (`pg_dump`, ver sección 10) no incluye
+las fotos. Las fotos quedan cubiertas por el backup semanal del servidor que
+hace DonWeb. Si se elimina el volumen (`docker volume rm siricman_media_data`),
+solo se pueden recuperar desde ese backup semanal, y se pierden las fotos
+subidas después de la última copia.
 
 ## 7. Panel de administración: sesión de administradores
 
@@ -244,3 +246,147 @@ Si un servidor tenía cargadas variables `SMTP_*`, `LEADS_NOTIFY_TO` o
 
 Antispam: el formulario acepta hasta 5 envíos por minuto por IP y descarta en
 silencio los envíos de bots (campo trampa). No se guarda la IP del visitante.
+
+## 10. Respaldos diarios de la base y monitoreo
+
+Hay dos capas de respaldo y conviene no confundirlas:
+
+- **Respaldo diario de la base (este apartado):** un `pg_dump` por día, guardado en
+  el mismo servidor, que conserva los últimos 7. Protege ante un error humano o de
+  la aplicación entre dos backups semanales (propiedades borradas, una migración
+  defectuosa, un `docker compose down -v`).
+- **Backup semanal de DonWeb:** copia del servidor completo, incluidas las fotos
+  del volumen `media_data`. Protege ante la pérdida del VPS.
+
+### 10.1 Instalar los scripts
+
+Desde tu máquina, copiá la carpeta `deploy/backup/` al servidor y dales permiso de
+ejecución:
+
+```bash
+scp -P 5941 -r deploy/backup siricman:~/siricman/
+ssh siricman 'chmod +x ~/siricman/backup/*.sh ~/siricman/backup/test/*.sh'
+```
+
+Los scripts usan LF como fin de línea (el repo lo fuerza con `.gitattributes`). Si
+al ejecutarlos aparece `bad interpreter` o `\r`, el archivo llegó con CRLF: volvé a
+copiarlo desde un checkout actualizado del repo.
+
+### 10.2 Medir la base y revisar el disco (una sola vez)
+
+```bash
+cd ~/siricman
+docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select pg_size_pretty(pg_database_size(current_database()))"'
+df -h ~
+```
+
+Un dump comprimido ocupa una fracción del tamaño de la base; con 7 copias, el total
+tiene que quedar muy por debajo del espacio libre. Anotá el tamaño de la base: si
+crece mucho con el tiempo, volvé a medir.
+
+### 10.3 Primer respaldo manual
+
+```bash
+~/siricman/backup/pg-backup.sh
+ls -lh ~/siricman/backups/
+```
+
+Debe imprimir una línea `OK: siricman-AAAAMMDD-HHMMSS.dump (...)` y dejar el archivo
+en `~/siricman/backups/`. El script valida el dump con `pg_restore --list` antes de
+darlo por bueno; si el dump falla, no deja archivos a medias y no borra copias
+anteriores.
+
+### 10.4 Programar el respaldo diario
+
+```bash
+crontab -e
+```
+
+Agregá esta línea (todos los días a las 03:30, hora del servidor):
+
+```cron
+30 3 * * * /home/matias/siricman/backup/pg-backup.sh >> /home/matias/siricman/backups/backup.log 2>&1
+```
+
+Verificá con `crontab -l`. El primer día, revisá `~/siricman/backups/backup.log`
+para confirmar que corrió. La carpeta `backups/` ya existe porque el primer
+respaldo manual la creó; sin ella, cron no puede abrir el log.
+
+Variables opcionales (se pueden anteponer en la línea de cron): `BACKUP_KEEP`
+(cantidad de copias, por defecto 7) y `BACKUP_MIN_FREE_MB` (espacio libre mínimo,
+por defecto 2048).
+
+### 10.5 Protección del disco
+
+Antes de cada dump, el script mide el espacio libre del disco donde se guardan los
+respaldos. Si hay menos de `BACKUP_MIN_FREE_MB` (2 GB por defecto), **no crea ningún
+archivo**, escribe una línea `SKIPPED: only N MB free (< M MB)` y termina con código
+2. Así los respaldos nunca le quitan lugar al servidor ni a las fotos. Cron no
+avisa por sí solo: si aparece un `SKIPPED` o un `ERROR` en `backup.log`, liberá
+espacio (por ejemplo `docker image prune -f`) y corré el script a mano.
+
+```bash
+tail -n 20 ~/siricman/backups/backup.log   # últimas corridas
+```
+
+### 10.6 Ver los respaldos disponibles
+
+```bash
+ls -lh ~/siricman/backups/siricman-*.dump
+```
+
+El nombre incluye la fecha y la hora (`siricman-AAAAMMDD-HHMMSS.dump`).
+
+### 10.7 Restaurar un respaldo
+
+La restauración **reemplaza** la base actual. Pasos:
+
+1. Elegí el archivo con `ls -lh ~/siricman/backups/siricman-*.dump`.
+2. Ejecutá:
+   ```bash
+   ~/siricman/backup/pg-restore.sh ~/siricman/backups/siricman-AAAAMMDD-HHMMSS.dump
+   ```
+3. El script pide escribir `RESTAURAR` para continuar (con `--yes` omite la
+   pregunta; usalo solo si estás completamente seguro del archivo elegido).
+4. Antes de tocar nada toma un **respaldo de seguridad** de la base actual. Si ese
+   respaldo falla o se omite por falta de disco, la restauración se cancela sin
+   cambios.
+5. Detiene la API (`docker compose stop api`), restaura con
+   `pg_restore --clean --if-exists --no-owner` y vuelve a iniciar la API, incluso
+   si la restauración falla.
+6. Verificá: `docker compose ps`, `docker compose logs --tail 50 api` y el sitio y
+   el panel en el navegador.
+
+Mientras dura la restauración el sitio público y el panel muestran errores: hacela
+en un horario de poco uso.
+
+### 10.8 Qué NO cubre
+
+- **Fotos:** el dump solo contiene la base. Las fotos están cubiertas por el backup
+  semanal de DonWeb, no por el respaldo diario.
+- **Copia fuera del servidor:** los dumps viven en el mismo VPS. Si el servidor se
+  pierde, solo queda el backup semanal de DonWeb.
+
+### 10.9 Monitoreo con UptimeRobot (plan gratuito)
+
+`GET https://api.<dominio>/api/health` es público y responde `200` con
+`{"status":"ok"}` si la API y la base funcionan, o `503` si la base no responde.
+Verificalo primero:
+
+```bash
+curl -i https://api.<dominio>/api/health
+```
+
+Después, en [uptimerobot.com](https://uptimerobot.com):
+
+1. Creá una cuenta gratuita.
+2. **Alert contacts:** agregá tu email y confirmá el mensaje de verificación.
+3. **Add New Monitor** (tipo **HTTP(s)**), dos veces:
+   - Sitio: URL `https://<dominio>`.
+   - API: URL `https://api.<dominio>/api/health`.
+4. En ambos, intervalo de **5 minutos** (el mínimo del plan gratuito) y tu email
+   como contacto de alerta.
+5. Confirmá que los dos monitores aparezcan en verde (`Up`).
+
+UptimeRobot avisa por email cuando un monitor deja de responder y cuando vuelve.
+No monitorea el cron de respaldos: eso se revisa en `backup.log`.
