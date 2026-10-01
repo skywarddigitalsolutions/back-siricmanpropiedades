@@ -12,6 +12,7 @@ import { AuditModule } from './audit/audit.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { MfaModule } from './auth/mfa/mfa.module';
 import { NeighborhoodsModule } from './neighborhoods/neighborhoods.module';
+import { LeadsModule } from './leads/leads.module';
 import { PropertiesModule } from './properties/properties.module';
 
 @Module({
@@ -53,6 +54,7 @@ import { PropertiesModule } from './properties/properties.module';
     MfaModule,
     NeighborhoodsModule,
     PropertiesModule,
+    LeadsModule,
   ],
   providers: [
     {
