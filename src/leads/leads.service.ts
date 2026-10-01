@@ -1,8 +1,6 @@
 import {
   BadRequestException,
-  Inject,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -12,10 +10,6 @@ import { LeadStatus } from './enums/lead.enums';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { AdminLeadFiltersDto, UpdateLeadDto } from './dto/admin-lead.dto';
 import { AdminLeadResponse, toAdminLead } from './lead.mapper';
-import {
-  LEAD_NOTIFIER,
-  LeadNotifier,
-} from './notifications/lead-notifier.port';
 import { Property } from '../properties/entities/property.entity';
 import { PublicationStatus } from '../properties/enums/property.enums';
 import { Paginated } from '../common/interfaces/paginated.interface';
@@ -27,16 +21,12 @@ const DEFAULT_LIMIT = 20;
 
 @Injectable()
 export class LeadsService {
-  private readonly logger = new Logger(LeadsService.name);
-
   constructor(
     @InjectRepository(Lead)
     private readonly leadRepository: Repository<Lead>,
     @InjectRepository(Property)
     private readonly propertyRepository: Repository<Property>,
     private readonly auditLogService: AuditLogService,
-    @Inject(LEAD_NOTIFIER)
-    private readonly notifier: LeadNotifier,
   ) {}
 
   /**
@@ -70,22 +60,7 @@ export class LeadsService {
       details: dto.details ?? null,
       property,
     });
-    const saved = await this.leadRepository.save(lead);
-    this.notifyInBackground(saved);
-    return saved;
-  }
-
-  /**
-   * El aviso por email no bloquea ni hace fallar la respuesta al visitante:
-   * la consulta ya quedó guardada y se ve en la bandeja.
-   */
-  private notifyInBackground(lead: Lead): void {
-    this.notifier.notifyNewLead(lead).catch((error: unknown) => {
-      const reason = error instanceof Error ? error.message : 'unknown error';
-      this.logger.warn(
-        `Could not send the notification for lead ${lead.id}: ${reason}`,
-      );
-    });
+    return this.leadRepository.save(lead);
   }
 
   /** Bandeja de consultas: filtrable, paginada, más recientes primero. */
