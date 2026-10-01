@@ -47,9 +47,8 @@ describe('loadMediaConfig', () => {
       true,
     );
     expect(
-      loadMediaConfig(
-        new FakeConfigService({ NODE_ENV: 'development' }) as any,
-      ).serveStatic,
+      loadMediaConfig(new FakeConfigService({ NODE_ENV: 'development' }) as any)
+        .serveStatic,
     ).toBe(true);
   });
 
