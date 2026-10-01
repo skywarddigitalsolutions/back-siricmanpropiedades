@@ -353,7 +353,7 @@ describe('buildPublicPropertyQuery', () => {
     const spec = buildPublicPropertyQuery(publicFilters());
 
     expect(spec.orderBy).toEqual([
-      { column: `${PROPERTY_ALIAS}.dealStatus`, direction: 'ASC' },
+      { column: `${PROPERTY_ALIAS}.isUnavailable`, direction: 'ASC' },
       { column: `${PROPERTY_ALIAS}.firstPublishedAt`, direction: 'DESC' },
       { column: `${PROPERTY_ALIAS}.id`, direction: 'DESC' },
     ]);
@@ -365,7 +365,7 @@ describe('buildPublicPropertyQuery', () => {
     );
 
     expect(spec.orderBy).toEqual([
-      { column: `${PROPERTY_ALIAS}.dealStatus`, direction: 'ASC' },
+      { column: `${PROPERTY_ALIAS}.isUnavailable`, direction: 'ASC' },
       { column: `${PROPERTY_ALIAS}.price`, direction: 'ASC' },
       { column: `${PROPERTY_ALIAS}.id`, direction: 'ASC' },
     ]);
@@ -377,7 +377,7 @@ describe('buildPublicPropertyQuery', () => {
     );
 
     expect(spec.orderBy).toEqual([
-      { column: `${PROPERTY_ALIAS}.dealStatus`, direction: 'ASC' },
+      { column: `${PROPERTY_ALIAS}.isUnavailable`, direction: 'ASC' },
       { column: `${PROPERTY_ALIAS}.price`, direction: 'DESC' },
       { column: `${PROPERTY_ALIAS}.id`, direction: 'DESC' },
     ]);
