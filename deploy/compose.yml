@@ -58,6 +58,9 @@ services:
       # como BFF para el panel de administración (no se publica ningún
       # puerto, así que no hace falta un .env para esta variable).
       API_INTERNAL_URL: http://api:3000
+      # Origen público del sitio (URLs canónicas, sitemap, Open Graph). Se arma
+      # con el SITE_DOMAIN del .env.
+      SITE_URL: https://${SITE_DOMAIN}
     depends_on:
       - api
 

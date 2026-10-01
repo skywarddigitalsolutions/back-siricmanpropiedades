@@ -202,3 +202,32 @@ Comprobación manual después del deploy (límites independientes por IP):
    incorrectos", no el mensaje de demasiados intentos.
 3. Si la conexión B también queda bloqueada, la IP no se está reenviando: revisar la
    configuración de Caddy y los registros de `web`.
+
+## 8. Sitio público (inicio, resultados y ficha)
+
+A partir de la versión del front que publica el catálogo, el servicio `web` usa la
+variable `SITE_URL` para las URLs canónicas, el `sitemap.xml`, `robots.txt` y las
+vistas previas al compartir. `compose.yml` la arma sola a partir de `SITE_DOMAIN`
+(`https://${SITE_DOMAIN}`), así que no hay que agregar nada al `.env`.
+
+Orden de actualización:
+
+1. Actualizar primero la API (incluye los filtros `featured` y `code`, y el límite
+   de 300 consultas por minuto para el catálogo público).
+2. Copiar el `compose.yml` actualizado:
+   `scp -P 5941 deploy/compose.yml siricman:~/siricman/`
+3. Aplicar: `docker compose pull && docker compose up -d`.
+4. Verificar:
+   - `docker compose exec web printenv SITE_URL` muestra `https://<dominio>`.
+   - `https://<dominio>/robots.txt` menciona el sitemap con el dominio correcto.
+   - `https://<dominio>/sitemap.xml` lista las propiedades publicadas.
+
+Por qué un límite propio para el catálogo: las páginas públicas se arman en el
+servidor de Next y piden el catálogo con un caché de 60 segundos. Esas consultas
+llegan a la API desde la IP del contenedor `web` (no la del visitante), así que el
+límite global de 20 por minuto se agotaría enseguida. Si el sitio muestra "No
+pudimos cargar las propiedades" con tráfico normal, revisar los 429 en los logs de
+la API: `docker compose logs api | grep 429`.
+
+Opcional: dar de alta el sitio en Google Search Console y enviar
+`https://<dominio>/sitemap.xml`.
