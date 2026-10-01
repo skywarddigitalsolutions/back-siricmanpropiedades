@@ -54,3 +54,17 @@
 ## Next step
 
 Push, PR, deploy; front features 15/16/18 consume these.
+
+## Endpoint contracts (for front features 15, 16, 18)
+
+All under `/api`, bearer token, 401/403 on missing token/role.
+
+- `GET /admin/clients?q&limit(1-100, def 20)&offset` (admin+manager) → `{ items: [{ email (lowercased), name (latest), phone (latest non-null|null), inquiries, firstInquiryAt, lastInquiryAt, properties: [{ id, code, title }] (distinct, latest first, max 5) }], total }`, ordered by lastInquiryAt DESC; only leads with email.
+- `GET /admin/clients/export.csv?q` → CSV (UTF-8 BOM, CRLF, `clientes.csv`), header `email,name,phone,inquiries,firstInquiryAt,lastInquiryAt,properties` (codes joined "; "), formula-injection safe, max 10,000 rows, audit `clients.exported`.
+- `GET /admin/leads` adds `q` (name/email/phone/message) and `propertyId` (UUID); response `{ items, total, counts: { new, contacted, closed } }` (counts ignore `status`).
+- `GET /admin/properties` adds `q` on address, `currency`, `hasImages=true|false`, `sort=createdAt|updatedAt|price` (price requires `currency`, else 400), `order=asc|desc`; items gain `coverThumbnailUrl: string|null`, `imageCount`; response adds `counts: { draft, published, archived }` (ignore `publicationStatus`).
+- `PATCH /auth/password` `{ currentPassword, newPassword, code? }` (code required with MFA; TOTP or backup) → 200 `{ id, userName, isActive, roles, token }`: the BFF must swap its session cookie to this token (every other session is invalidated). Wrong current password / code / same password → 400 (not 401). 5 failures → 429.
+- `POST /auth/mfa/backup-codes` `{ code }` (6-digit TOTP only) → 201 `{ backupCodes: string[10] }` shown once; 400 without MFA or bad code.
+- `GET /admin/dashboard` (admin+manager) → `{ leads: { new, total }, properties: { draft, published, archived, publishedWithoutImages }, latestLeads: [{ id, name, type, status, createdAt, property: { id, code, title } | null }] }` (max 5).
+- Users (admin only, pre-existing): `GET /users?isActive&limit&offset` (with `userRoles.role`, `isActive`), `POST /users` `{ userName, password, roleId }`, `PATCH /users/:id/activate|deactivate`, `PATCH /users/:id/reset-password` `{ newPassword }` (now also ends that user's sessions), `GET /roles`, `GET /roles/available`.
+- Operator: `docker compose exec api node dist/cli/reset-password.js <userName>` (runbook 11.1).
