@@ -232,28 +232,15 @@ la API: `docker compose logs api | grep 429`.
 Opcional: dar de alta el sitio en Google Search Console y enviar
 `https://<dominio>/sitemap.xml`.
 
-## 9. Consultas del sitio y avisos por email
+## 9. Consultas del sitio
 
-A partir de la versión que incluye las consultas, la API guarda cada consulta del
-sitio (tabla `leads`, creada por migración al arrancar) y las muestra en el panel,
-en **Consultas**. El aviso por email es opcional:
+La API guarda cada consulta del sitio (tabla `leads`, creada por migración al
+arrancar) y las muestra en el panel, en **Consultas**. No se envían emails: las
+consultas se responden por WhatsApp desde el detalle de cada una, y quien prefiera
+escribir por mail usa la dirección pública que muestra el sitio.
 
-- **Sin configurar:** todo funciona igual; la API solo deja una línea en el log
-  (`docker compose logs api | grep "New lead"`), sin datos personales.
-- **Con Google Workspace:**
-  1. En la cuenta que va a enviar los avisos (por ejemplo `avisos@<dominio>`), activar
-     la verificación en dos pasos y crear una **contraseña de aplicación**
-     (Cuenta de Google → Seguridad → Contraseñas de aplicaciones).
-  2. Completar en el `.env` del servidor: `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`,
-     `SMTP_USER=<cuenta>`, `SMTP_PASS=<contraseña de aplicación>` y
-     `LEADS_NOTIFY_TO=<quién recibe>` (separar con comas si son varios).
-  3. Copiar el `compose.yml` actualizado (agrega `PUBLIC_SITE_URL` para el link al
-     panel) y aplicar: `docker compose up -d`.
-  4. Enviar una consulta de prueba desde una ficha y verificar que llega el email.
-     Responder el email le contesta directamente al visitante (va como Reply-To).
-
-Si el envío falla (contraseña revocada, Google rechaza el login), la consulta se
-guarda igual y la API deja un aviso en el log: `docker compose logs api | grep notification`.
+Si un servidor tenía cargadas variables `SMTP_*`, `LEADS_NOTIFY_TO` o
+`PUBLIC_SITE_URL` en el `.env`, ya no se usan y se pueden borrar.
 
 Antispam: el formulario acepta hasta 5 envíos por minuto por IP y descarta en
 silencio los envíos de bots (campo trampa). No se guarda la IP del visitante.
