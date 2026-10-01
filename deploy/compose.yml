@@ -61,6 +61,10 @@ services:
       # Origen público del sitio (URLs canónicas, sitemap, Open Graph). Se arma
       # con el SITE_DOMAIN del .env.
       SITE_URL: https://${SITE_DOMAIN}
+      # Origen del panel de administración (host propio). El front redirige
+      # /admin del sitio público a este origen. Se arma con el SITE_DOMAIN
+      # del .env.
+      ADMIN_URL: https://admin.${SITE_DOMAIN}
     depends_on:
       - api
 
