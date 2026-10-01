@@ -134,6 +134,8 @@ describe('UsersService', () => {
 
       const savedUser = userRepository.save.mock.calls[0][0];
       expect(savedUser.password).not.toBe('NewPassword1');
+      // Invalidates the user's existing sessions.
+      expect(savedUser.passwordChangedAt).toBeInstanceOf(Date);
     });
   });
 });

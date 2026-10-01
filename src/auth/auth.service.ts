@@ -9,6 +9,7 @@ import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { JwtService } from '@nestjs/jwt';
 import { RevokedToken } from './entities/revoked-token.entity';
 import { LoginThrottleService } from './login-throttle.service';
+import { isIssuedBeforePasswordChange } from './helpers/session-validity';
 
 @Injectable()
 export class AuthService {
@@ -165,6 +166,8 @@ export class AuthService {
 
     if (!user) throw new UnauthorizedException('Token not valid');
     if (!user.isActive) throw new UnauthorizedException('User is not active');
+    if (isIssuedBeforePasswordChange(payload.iat, user.passwordChangedAt))
+      throw new UnauthorizedException('Token has been revoked');
 
     return user;
   }

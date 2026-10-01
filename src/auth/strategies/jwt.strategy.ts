@@ -7,6 +7,7 @@ import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { RevokedToken } from '../entities/revoked-token.entity';
+import { isIssuedBeforePasswordChange } from '../helpers/session-validity';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -60,6 +61,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     if (!user) throw new UnauthorizedException('Token not valid');
     if (!user.isActive) throw new UnauthorizedException('User is not active');
+
+    // Cambio de contraseña: cierra todas las sesiones emitidas antes.
+    if (isIssuedBeforePasswordChange(payload.iat, user.passwordChangedAt))
+      throw new UnauthorizedException('Token has been revoked');
 
     return user;
   }

@@ -140,6 +140,8 @@ export class UsersService {
   ): Promise<void> {
     const user = await this.findOne(id);
     user.password = await bcrypt.hash(newPassword, 10);
+    // Cierra las sesiones abiertas del usuario (ver JwtStrategy).
+    user.passwordChangedAt = new Date();
     await this.userRepository.save(user);
 
     await this.auditLogService.record({
