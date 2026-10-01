@@ -1,5 +1,7 @@
 import {
+  IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -8,14 +10,24 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { toQueryBoolean } from './public-property-filters.dto';
+import { RequiresCurrency } from './validators/price-filter.validators';
 import {
+  Currency,
   DealStatus,
   Operation,
   PropertyType,
   PublicationStatus,
 } from '../enums/property.enums';
+
+export type AdminPropertySort = 'createdAt' | 'updatedAt' | 'price';
+export const ADMIN_PROPERTY_SORTS: AdminPropertySort[] = [
+  'createdAt',
+  'updatedAt',
+  'price',
+];
 
 /**
  * Query filters for `GET /api/admin/properties`. `limit`/`offset` need
@@ -51,12 +63,40 @@ export class AdminPropertyFiltersDto {
   neighborhoodId?: string;
 
   @ApiPropertyOptional({
-    description: 'Free-text search matched against title or code (ILIKE)',
+    description:
+      'Free-text search matched against title, code or address (ILIKE)',
   })
   @IsOptional()
   @IsString()
   @MaxLength(100)
   q?: string;
+
+  @ApiPropertyOptional({
+    enum: Currency,
+    description: 'Only this currency; required to sort by price',
+  })
+  @IsOptional()
+  @IsEnum(Currency)
+  currency?: Currency;
+
+  @ApiPropertyOptional({
+    description: 'Only with (true) or without (false) photos',
+  })
+  @IsOptional()
+  @Transform(toQueryBoolean)
+  @IsBoolean()
+  hasImages?: boolean;
+
+  @ApiPropertyOptional({ enum: ADMIN_PROPERTY_SORTS, default: 'createdAt' })
+  @IsOptional()
+  @IsIn(ADMIN_PROPERTY_SORTS)
+  @RequiresCurrency((value) => value === 'price')
+  sort?: AdminPropertySort;
+
+  @ApiPropertyOptional({ enum: ['asc', 'desc'], default: 'desc' })
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  order?: 'asc' | 'desc';
 
   @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100 })
   @IsOptional()

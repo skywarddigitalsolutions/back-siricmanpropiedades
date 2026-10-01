@@ -1,5 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
-import { AdminPropertyFiltersDto } from '../dto/admin-property-filters.dto';
+import {
+  ADMIN_PROPERTY_SORTS,
+  AdminPropertyFiltersDto,
+} from '../dto/admin-property-filters.dto';
 import {
   PublicPropertyFiltersDto,
   PublicPropertySort,
@@ -42,6 +45,24 @@ const ADMIN_DEFAULT_OFFSET = 0;
 /** Escapes `\`, `%`, and `_` so a caller-supplied value is safe inside ILIKE. */
 export function escapeLikePattern(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+/**
+ * Admin sort: column from a whitelist only (anything else falls back to
+ * createdAt), direction from `order`, id as a stable tiebreaker. Prices of
+ * different currencies are not comparable, so (like the public catalog)
+ * sorting by price needs a currency.
+ */
+function adminOrderBy(filters: AdminPropertyFiltersDto): OrderClause[] {
+  const sort = ADMIN_PROPERTY_SORTS.find((s) => s === filters.sort);
+  if (sort === 'price' && filters.currency === undefined) {
+    throw new BadRequestException('currency is required when sorting by price');
+  }
+  const direction = filters.order === 'asc' ? 'ASC' : 'DESC';
+  return [
+    { column: `${PROPERTY_ALIAS}.${sort ?? 'createdAt'}`, direction },
+    { column: `${PROPERTY_ALIAS}.id`, direction },
+  ];
 }
 
 /**
@@ -92,17 +113,28 @@ export function buildAdminPropertyQuery(
 
   if (filters.q !== undefined) {
     where.push({
-      sql: `(${PROPERTY_ALIAS}.title ILIKE :q OR ${PROPERTY_ALIAS}.code ILIKE :q)`,
+      sql: `(${PROPERTY_ALIAS}.title ILIKE :q OR ${PROPERTY_ALIAS}.code ILIKE :q OR ${PROPERTY_ALIAS}.address ILIKE :q)`,
       params: { q: `%${escapeLikePattern(filters.q)}%` },
+    });
+  }
+
+  if (filters.currency !== undefined) {
+    where.push({
+      sql: `${PROPERTY_ALIAS}.currency = :currency`,
+      params: { currency: filters.currency },
+    });
+  }
+
+  if (filters.hasImages !== undefined) {
+    where.push({
+      sql: `${filters.hasImages ? '' : 'NOT '}EXISTS (SELECT 1 FROM property_images pi WHERE pi.property_id = ${PROPERTY_ALIAS}.id)`,
+      params: {},
     });
   }
 
   return {
     where,
-    orderBy: [
-      { column: `${PROPERTY_ALIAS}.createdAt`, direction: 'DESC' },
-      { column: `${PROPERTY_ALIAS}.id`, direction: 'DESC' },
-    ],
+    orderBy: adminOrderBy(filters),
     take: filters.limit ?? ADMIN_DEFAULT_LIMIT,
     skip: filters.offset ?? ADMIN_DEFAULT_OFFSET,
   };

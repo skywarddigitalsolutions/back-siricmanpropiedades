@@ -32,7 +32,7 @@ const isPriceSort = (value: unknown) =>
 
 /** Coerces the literal query strings `'true'`/`'false'` to booleans; any
  * other value passes through unchanged so `@IsBoolean` rejects it. */
-const toQueryBoolean = ({ value }: { value: unknown }) => {
+export const toQueryBoolean = ({ value }: { value: unknown }) => {
   if (value === 'true') return true;
   if (value === 'false') return false;
   return value;
