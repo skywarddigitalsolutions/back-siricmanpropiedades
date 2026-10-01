@@ -116,13 +116,14 @@ const PRICE_SORTS: ReadonlySet<PublicPropertySort> = new Set([
 ]);
 
 /**
- * Every public sort first puts sold/rented properties after available/reserved
- * ones (they stay listed as social proof). Ordering by `dealStatus` ASC does
- * exactly that because Postgres sorts enums by declaration order:
- * `available, reserved, sold, rented` (migration CreateProperties).
+ * Every public sort first puts sold/rented properties after available and
+ * reserved ones (they stay listed as social proof); the chosen sort applies
+ * within each group. `isUnavailable` is a stored generated column (false
+ * sorts first). Ordering by the `dealStatus` enum instead would split
+ * reserved from available.
  */
 const UNAVAILABLE_LAST: OrderClause = {
-  column: `${PROPERTY_ALIAS}.dealStatus`,
+  column: `${PROPERTY_ALIAS}.isUnavailable`,
   direction: 'ASC',
 };
 
