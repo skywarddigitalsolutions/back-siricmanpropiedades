@@ -441,3 +441,27 @@ Qué esperar después del cambio:
 
 La sección 7 (IP real del visitante) no cambia: el panel también llega a `web` a
 través de Caddy, que sigue agregando `X-Forwarded-For`.
+
+### 11.1 Recuperar el acceso del admin
+
+No hay "olvidé mi contraseña" en el panel. Si alguien pierde su contraseña, un
+operador con acceso al servidor la blanquea con un comando (el MFA no se toca):
+
+```bash
+cd ~/siricman   # la carpeta donde está el docker-compose.yml
+docker compose exec api node dist/cli/reset-password.js <usuario>
+```
+
+- Te pide la contraseña nueva dos veces, sin mostrarla en pantalla. Tiene que
+  cumplir la misma política que el login (6 a 50 caracteres, con mayúscula,
+  minúscula y un número o símbolo).
+- Sin terminal interactiva, la lee de stdin (una línea): `printf '%s\n' 'NuevaClave1' | docker compose exec -T api node dist/cli/reset-password.js <usuario>`.
+  Ojo: así queda en el historial del shell, preferí la forma interactiva.
+- Cierra las sesiones abiertas de ese usuario y deja una entrada de auditoría
+  (`user.password_reset`, vía `cli`).
+- Si el usuario tiene MFA, sigue necesitando su app o un código de respaldo para
+  entrar. Si perdió también el segundo factor, eso no se resuelve con este comando.
+- Pasale la contraseña temporal por un canal seguro y pedile que la cambie desde
+  el panel apenas entre.
+
+En desarrollo, con el `.env` local: `npm run admin:reset-password -- <usuario>`.
