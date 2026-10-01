@@ -43,6 +43,8 @@ services:
       # Forced to the path the Dockerfile prepares and this volume mounts;
       # never left to whatever MEDIA_ROOT the .env file happens to set.
       MEDIA_ROOT: /app/storage/media
+      # Public site origin, for the panel link in new-lead emails.
+      PUBLIC_SITE_URL: https://${SITE_DOMAIN}
     volumes:
       - media_data:/app/storage/media
     depends_on:
