@@ -9,6 +9,7 @@ import { PublicationStatus } from '../properties/enums/property.enums';
 import { AuditLogService } from '../audit/audit-log.service';
 import { AuditAction } from '../audit/enums/audit-action.enum';
 import { CreateLeadDto } from './dto/create-lead.dto';
+import { LEAD_NOTIFIER } from './notifications/lead-notifier.port';
 
 const PROPERTY_ID = '8f8e2c0e-4a8a-4f43-9a51-2a3c5f9c2b11';
 const ACTOR = { id: 'user-1', userName: 'gabriel' };
@@ -53,6 +54,7 @@ describe('LeadsService', () => {
   let leadRepository: any;
   let propertyRepository: any;
   let auditLogService: any;
+  let notifier: { notifyNewLead: jest.Mock };
 
   beforeEach(async () => {
     leadRepository = {
@@ -64,6 +66,7 @@ describe('LeadsService', () => {
     };
     propertyRepository = { findOne: jest.fn() };
     auditLogService = { record: jest.fn() };
+    notifier = { notifyNewLead: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -71,6 +74,7 @@ describe('LeadsService', () => {
         { provide: getRepositoryToken(Lead), useValue: leadRepository },
         { provide: getRepositoryToken(Property), useValue: propertyRepository },
         { provide: AuditLogService, useValue: auditLogService },
+        { provide: LEAD_NOTIFIER, useValue: notifier },
       ],
     }).compile();
 
@@ -85,6 +89,7 @@ describe('LeadsService', () => {
 
       expect(result).toBeNull();
       expect(leadRepository.save).not.toHaveBeenCalled();
+      expect(notifier.notifyNewLead).not.toHaveBeenCalled();
       expect(propertyRepository.findOne).not.toHaveBeenCalled();
     });
 
@@ -120,6 +125,17 @@ describe('LeadsService', () => {
         property,
       });
       expect(saved?.id).toBe('lead-1');
+      expect(notifier.notifyNewLead).toHaveBeenCalledWith(saved);
+    });
+
+    it('still accepts the lead when the email notification fails', async () => {
+      propertyRepository.findOne.mockResolvedValue({ id: PROPERTY_ID });
+      notifier.notifyNewLead.mockRejectedValue(new Error('SMTP down'));
+
+      await expect(service.submit(inquiry())).resolves.toMatchObject({
+        id: 'lead-1',
+      });
+      await new Promise((resolve) => setImmediate(resolve));
     });
 
     it('saves a contact message without a property', async () => {
