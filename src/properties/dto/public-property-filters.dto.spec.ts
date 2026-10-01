@@ -126,18 +126,36 @@ describe('PublicPropertyFiltersDto', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('rejects an unknown "featured" query field through the full ValidationPipe (whitelist + forbidNonWhitelisted)', async () => {
-    const pipe = new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    });
+  const pipe = new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  });
+  const asQuery = {
+    type: 'query' as const,
+    metatype: PublicPropertyFiltersDto,
+  };
 
+  it('accepts featured as a query boolean and code as a string (feature 7)', async () => {
+    const dto = (await pipe.transform(
+      { featured: 'true', code: 'sp-0007' },
+      asQuery,
+    )) as PublicPropertyFiltersDto;
+
+    expect(dto.featured).toBe(true);
+    expect(dto.code).toBe('sp-0007');
+  });
+
+  it('rejects a non-boolean featured and an over-long code', async () => {
     await expect(
-      pipe.transform(
-        { featured: 'true' },
-        { type: 'query', metatype: PublicPropertyFiltersDto },
-      ),
+      pipe.transform({ featured: 'yes' }, asQuery),
     ).rejects.toThrow();
+    await expect(
+      pipe.transform({ code: 'X'.repeat(21) }, asQuery),
+    ).rejects.toThrow();
+  });
+
+  it('still rejects unknown query fields through the full ValidationPipe (whitelist + forbidNonWhitelisted)', async () => {
+    await expect(pipe.transform({ q: 'casa' }, asQuery)).rejects.toThrow();
   });
 });

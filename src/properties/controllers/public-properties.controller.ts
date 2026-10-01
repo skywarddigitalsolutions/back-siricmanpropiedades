@@ -1,5 +1,7 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import { PUBLIC_READ_THROTTLE } from '../../common/constants/public-read-throttle.constants';
 import { PublicPropertiesService } from '../services/public-properties.service';
 import { PublicPropertyFiltersDto } from '../dto';
 
@@ -9,6 +11,7 @@ import { PublicPropertyFiltersDto } from '../dto';
  * `NeighborhoodsController`'s `GET /` precedent.
  */
 @ApiTags('Public Properties')
+@Throttle(PUBLIC_READ_THROTTLE)
 @Controller('properties')
 export class PublicPropertiesController {
   constructor(

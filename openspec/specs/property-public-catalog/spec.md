@@ -24,7 +24,7 @@ The system MUST restrict the public property listing to properties whose `public
 
 ### Requirement: Public Listing Filters
 
-The system MUST support filtering the public listing by: `operation` (`sale|rent`), `type`, `neighborhood`, minimum `rooms`, minimum `bedrooms`, minimum `bathrooms`, `hasGarage` (toggle), `creditEligible` (toggle), `petsAllowed` (toggle), minimum `coveredArea`, minimum `totalArea`, and a currency-scoped price range (`priceMin`/`priceMax`, see the currency-scoped price rule requirement). Every filter MUST be optional; when a filter is omitted, results MUST NOT be constrained on that dimension.
+The system MUST support filtering the public listing by: `operation` (`sale|rent`), `type`, `neighborhood`, minimum `rooms`, minimum `bedrooms`, minimum `bathrooms`, `hasGarage` (toggle), `creditEligible` (toggle), `petsAllowed` (toggle), `featured` (toggle), `code` (exact property code, case-insensitive, surrounding spaces ignored), minimum `coveredArea`, minimum `totalArea`, and a currency-scoped price range (`priceMin`/`priceMax`, see the currency-scoped price rule requirement). Every filter MUST be optional; when a filter is omitted, results MUST NOT be constrained on that dimension.
 
 The filter-to-query-condition assembly MUST be implemented as a pure, unit-testable function (filters in, query conditions/parameters/ordering out), independent of the HTTP layer and the ORM query builder invocation.
 
@@ -39,6 +39,18 @@ The filter-to-query-condition assembly MUST be implemented as a pure, unit-testa
 - GIVEN several published properties matching different combinations of neighborhood, rooms, and `hasGarage`
 - WHEN an anonymous caller requests the public listing with a specific neighborhood, a minimum `rooms` value, and `hasGarage=true`
 - THEN the response contains only published properties that satisfy all three conditions simultaneously
+
+#### Scenario: Featured properties for the home page
+
+- GIVEN published properties where only some have `featured = true`
+- WHEN an anonymous caller requests the public listing with `featured=true`
+- THEN the response contains only the published featured properties
+
+#### Scenario: Looking up a property by code
+
+- GIVEN a published property with code `SP-0007`
+- WHEN an anonymous caller requests the public listing with `code=sp-0007`
+- THEN the response contains exactly that property
 
 #### Scenario: Omitted filters do not constrain results
 
@@ -85,7 +97,9 @@ The system MUST require a `currency` parameter (`USD` or `ARS`) whenever the req
 
 ### Requirement: Public Listing Pagination and Sorting
 
-The system MUST paginate the public listing and MUST return the response as `{ items, total }`, where `items` is the page of matching published properties and `total` is the total count of matching published properties across all pages (before pagination is applied). The system MUST support sorting by `newest` (default), `price_asc`, and `price_desc` (the latter two governed by the currency-scoped price rule).
+The system MUST paginate the public listing and MUST return the response as `{ items, total }`, where `items` is the page of matching published properties and `total` is the total count of matching published properties across all pages (before pagination is applied). The system MUST support sorting by `newest` (default), `price_asc`, and `price_desc` (the latter two governed by the currency-scoped price rule). Under every sort, properties whose `dealStatus` is `sold` or `rented` MUST come after `available` and `reserved` ones (they stay listed as social proof); the chosen sort applies within each group.
+
+Public catalog reads (`GET /api/properties`, `GET /api/properties/:slug`, `GET /api/neighborhoods`) MUST use a dedicated rate limit of 300 requests per minute per IP instead of the global limit, because the public site fetches them from its server with a short cache, sharing one IP.
 
 #### Scenario: Response shape is items plus total
 
@@ -98,6 +112,12 @@ The system MUST paginate the public listing and MUST return the response as `{ i
 - GIVEN several published properties created at different times
 - WHEN an anonymous caller requests the public listing without a `sort` parameter
 - THEN the response orders properties from most recently created to least recently created
+
+#### Scenario: Sold and rented properties come last
+
+- GIVEN a published `sold` property published yesterday and a published `available` property published last month
+- WHEN an anonymous caller requests the public listing without a `sort` parameter
+- THEN the `available` property is listed before the `sold` one
 
 ### Requirement: Public Property Detail by Slug
 
@@ -140,7 +160,7 @@ The system MUST omit the property's exact `address` field from every public resp
 
 ### Requirement: Public Filter DTO Validation
 
-DTO validation (class-validator/class-transformer, matching the codebase's existing convention): the public listing query DTO MUST validate `operation`, `type`, and `sort` as restricted to their declared enum values; MUST validate `priceMin`, `priceMax`, minimum `rooms`/`bedrooms`/`bathrooms`, minimum `coveredArea`/`totalArea`, and pagination parameters (page number, page size) as non-negative numbers normalized via `@Transform`; MUST validate the toggle filters (`hasGarage`, `creditEligible`, `petsAllowed`) as booleans normalized via `@Transform`; and MUST enforce the currency-scoped price rule (see that requirement) as a cross-field validation rather than a per-field one.
+DTO validation (class-validator/class-transformer, matching the codebase's existing convention): the public listing query DTO MUST validate `operation`, `type`, and `sort` as restricted to their declared enum values; MUST validate `priceMin`, `priceMax`, minimum `rooms`/`bedrooms`/`bathrooms`, minimum `coveredArea`/`totalArea`, and pagination parameters (page number, page size) as non-negative numbers normalized via `@Transform`; MUST validate the toggle filters (`hasGarage`, `creditEligible`, `petsAllowed`, `featured`) as booleans normalized via `@Transform`; MUST validate `code` as a string of at most 20 characters; and MUST enforce the currency-scoped price rule (see that requirement) as a cross-field validation rather than a per-field one.
 
 #### Scenario: Invalid enum filter value is rejected
 

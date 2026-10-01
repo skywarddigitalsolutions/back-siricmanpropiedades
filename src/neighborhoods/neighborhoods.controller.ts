@@ -1,5 +1,7 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import { PUBLIC_READ_THROTTLE } from '../common/constants/public-read-throttle.constants';
 import { NeighborhoodsService } from './neighborhoods.service';
 import { CreateNeighborhoodDto } from './dto';
 import { Auth, GetUser } from '../auth/decorators';
@@ -14,6 +16,7 @@ export class NeighborhoodsController {
   /** GET /api/neighborhoods - Listado público de barrios */
   @ApiOperation({ summary: 'Listar barrios (público)' })
   @ApiResponse({ status: 200, description: 'Listado de barrios' })
+  @Throttle(PUBLIC_READ_THROTTLE)
   @Get()
   findAll() {
     return this.neighborhoodsService.findAll();

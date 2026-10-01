@@ -115,20 +115,34 @@ const PRICE_SORTS: ReadonlySet<PublicPropertySort> = new Set([
   'price_desc',
 ]);
 
+/**
+ * Every public sort first puts sold/rented properties after available/reserved
+ * ones (they stay listed as social proof). Ordering by `dealStatus` ASC does
+ * exactly that because Postgres sorts enums by declaration order:
+ * `available, reserved, sold, rented` (migration CreateProperties).
+ */
+const UNAVAILABLE_LAST: OrderClause = {
+  column: `${PROPERTY_ALIAS}.dealStatus`,
+  direction: 'ASC',
+};
+
 function publicOrderBy(sort: PublicPropertySort | undefined): OrderClause[] {
   if (sort === 'price_asc') {
     return [
+      UNAVAILABLE_LAST,
       { column: `${PROPERTY_ALIAS}.price`, direction: 'ASC' },
       { column: `${PROPERTY_ALIAS}.id`, direction: 'ASC' },
     ];
   }
   if (sort === 'price_desc') {
     return [
+      UNAVAILABLE_LAST,
       { column: `${PROPERTY_ALIAS}.price`, direction: 'DESC' },
       { column: `${PROPERTY_ALIAS}.id`, direction: 'DESC' },
     ];
   }
   return [
+    UNAVAILABLE_LAST,
     { column: `${PROPERTY_ALIAS}.firstPublishedAt`, direction: 'DESC' },
     { column: `${PROPERTY_ALIAS}.id`, direction: 'DESC' },
   ];
@@ -219,6 +233,21 @@ export function buildPublicPropertyQuery(
     where.push({
       sql: `${PROPERTY_ALIAS}.petsAllowed = :petsAllowed`,
       params: { petsAllowed: filters.petsAllowed },
+    });
+  }
+
+  if (filters.featured !== undefined) {
+    where.push({
+      sql: `${PROPERTY_ALIAS}.featured = :featured`,
+      params: { featured: filters.featured },
+    });
+  }
+
+  if (filters.code !== undefined) {
+    // Codes are stored uppercase ("SP-0007"); visitors may type "sp-0007 ".
+    where.push({
+      sql: `UPPER(${PROPERTY_ALIAS}.code) = :code`,
+      params: { code: filters.code.trim().toUpperCase() },
     });
   }
 

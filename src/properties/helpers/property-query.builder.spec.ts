@@ -156,6 +156,24 @@ describe('buildPublicPropertyQuery', () => {
     expect(spec.where).toHaveLength(1);
   });
 
+  it('adds an equality clause for featured', () => {
+    const spec = buildPublicPropertyQuery(publicFilters({ featured: true }));
+
+    expect(spec.where).toContainEqual({
+      sql: `${PROPERTY_ALIAS}.featured = :featured`,
+      params: { featured: true },
+    });
+  });
+
+  it('matches code exactly and case-insensitively', () => {
+    const spec = buildPublicPropertyQuery(publicFilters({ code: ' sp-0007 ' }));
+
+    expect(spec.where).toContainEqual({
+      sql: `UPPER(${PROPERTY_ALIAS}.code) = :code`,
+      params: { code: 'SP-0007' },
+    });
+  });
+
   it('adds an equality clause for operation', () => {
     const spec = buildPublicPropertyQuery(
       publicFilters({ operation: Operation.RENT }),
@@ -331,10 +349,11 @@ describe('buildPublicPropertyQuery', () => {
     ).toThrow(BadRequestException);
   });
 
-  it('orders by firstPublishedAt DESC, id DESC by default (newest)', () => {
+  it('orders unavailable (sold/rented) last, then by firstPublishedAt DESC, id DESC by default (newest)', () => {
     const spec = buildPublicPropertyQuery(publicFilters());
 
     expect(spec.orderBy).toEqual([
+      { column: `${PROPERTY_ALIAS}.dealStatus`, direction: 'ASC' },
       { column: `${PROPERTY_ALIAS}.firstPublishedAt`, direction: 'DESC' },
       { column: `${PROPERTY_ALIAS}.id`, direction: 'DESC' },
     ]);
@@ -346,6 +365,7 @@ describe('buildPublicPropertyQuery', () => {
     );
 
     expect(spec.orderBy).toEqual([
+      { column: `${PROPERTY_ALIAS}.dealStatus`, direction: 'ASC' },
       { column: `${PROPERTY_ALIAS}.price`, direction: 'ASC' },
       { column: `${PROPERTY_ALIAS}.id`, direction: 'ASC' },
     ]);
@@ -357,6 +377,7 @@ describe('buildPublicPropertyQuery', () => {
     );
 
     expect(spec.orderBy).toEqual([
+      { column: `${PROPERTY_ALIAS}.dealStatus`, direction: 'ASC' },
       { column: `${PROPERTY_ALIAS}.price`, direction: 'DESC' },
       { column: `${PROPERTY_ALIAS}.id`, direction: 'DESC' },
     ]);
