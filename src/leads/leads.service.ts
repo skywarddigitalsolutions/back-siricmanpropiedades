@@ -4,12 +4,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Lead } from './entities/lead.entity';
 import { LeadStatus } from './enums/lead.enums';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { AdminLeadFiltersDto, UpdateLeadDto } from './dto/admin-lead.dto';
 import { AdminLeadResponse, toAdminLead } from './lead.mapper';
+import { buildLeadWhere, LEAD_ALIAS } from './helpers/lead-query.builder';
 import { Property } from '../properties/entities/property.entity';
 import { PublicationStatus } from '../properties/enums/property.enums';
 import { Paginated } from '../common/interfaces/paginated.interface';
@@ -18,6 +19,11 @@ import { AuditAction } from '../audit/enums/audit-action.enum';
 import { AuditActor } from '../audit/interfaces/audit-actor.interface';
 
 const DEFAULT_LIMIT = 20;
+
+/** Admin inbox page plus how many leads each status holds (see `findAll`). */
+export type AdminLeadList = Paginated<AdminLeadResponse> & {
+  counts: Record<LeadStatus, number>;
+};
 
 @Injectable()
 export class LeadsService {
@@ -63,22 +69,44 @@ export class LeadsService {
     return this.leadRepository.save(lead);
   }
 
-  /** Bandeja de consultas: filtrable, paginada, más recientes primero. */
-  async findAll(
-    filters: AdminLeadFiltersDto,
-  ): Promise<Paginated<AdminLeadResponse>> {
-    const where: FindOptionsWhere<Lead> = {};
-    if (filters.status) where.status = filters.status;
-    if (filters.type) where.type = filters.type;
+  /**
+   * Bandeja de consultas: filtrable, paginada, más recientes primero. Incluye
+   * `counts` por estado con todos los filtros menos el estado, para las
+   * pestañas de la bandeja.
+   */
+  async findAll(filters: AdminLeadFiltersDto): Promise<AdminLeadList> {
+    const listQuery = this.leadRepository
+      .createQueryBuilder(LEAD_ALIAS)
+      .leftJoinAndSelect(`${LEAD_ALIAS}.property`, 'property');
+    for (const clause of buildLeadWhere(filters)) {
+      listQuery.andWhere(clause.sql, clause.params);
+    }
+    listQuery
+      .orderBy(`${LEAD_ALIAS}.createdAt`, 'DESC')
+      .addOrderBy(`${LEAD_ALIAS}.id`, 'DESC')
+      .take(filters.limit ?? DEFAULT_LIMIT)
+      .skip(filters.offset ?? 0);
+    const [rows, total] = await listQuery.getManyAndCount();
 
-    const [rows, total] = await this.leadRepository.findAndCount({
-      where,
-      relations: { property: true },
-      order: { createdAt: 'DESC', id: 'DESC' },
-      take: filters.limit ?? DEFAULT_LIMIT,
-      skip: filters.offset ?? 0,
-    });
-    return { items: rows.map(toAdminLead), total };
+    const countQuery = this.leadRepository
+      .createQueryBuilder(LEAD_ALIAS)
+      .select(`${LEAD_ALIAS}.status`, 'status')
+      .addSelect('COUNT(*)', 'count');
+    for (const clause of buildLeadWhere(filters, { includeStatus: false })) {
+      countQuery.andWhere(clause.sql, clause.params);
+    }
+    const countRows = await countQuery
+      .groupBy(`${LEAD_ALIAS}.status`)
+      .getRawMany<{ status: LeadStatus; count: string }>();
+
+    const counts = {
+      [LeadStatus.NEW]: 0,
+      [LeadStatus.CONTACTED]: 0,
+      [LeadStatus.CLOSED]: 0,
+    };
+    for (const row of countRows) counts[row.status] = Number(row.count);
+
+    return { items: rows.map(toAdminLead), total, counts };
   }
 
   async findOne(id: string): Promise<AdminLeadResponse> {

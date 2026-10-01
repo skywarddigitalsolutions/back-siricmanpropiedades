@@ -11,10 +11,9 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { LeadsService } from './leads.service';
+import { AdminLeadList, LeadsService } from './leads.service';
 import { AdminLeadFiltersDto, UpdateLeadDto } from './dto/admin-lead.dto';
 import { AdminLeadResponse } from './lead.mapper';
-import { Paginated } from '../common/interfaces/paginated.interface';
 import { Auth, GetUser, RoleProtected } from '../auth/decorators';
 import { ValidRoles } from '../auth/interfaces';
 import { User } from '../users/entities/user.entity';
@@ -32,9 +31,7 @@ export class AdminLeadsController {
 
   @ApiOperation({ summary: 'Listar consultas (más recientes primero)' })
   @Get()
-  findAll(
-    @Query() filters: AdminLeadFiltersDto,
-  ): Promise<Paginated<AdminLeadResponse>> {
+  findAll(@Query() filters: AdminLeadFiltersDto): Promise<AdminLeadList> {
     return this.leadsService.findAll(filters);
   }
 

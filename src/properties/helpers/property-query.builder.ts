@@ -40,7 +40,7 @@ const ADMIN_DEFAULT_LIMIT = 20;
 const ADMIN_DEFAULT_OFFSET = 0;
 
 /** Escapes `\`, `%`, and `_` so a caller-supplied value is safe inside ILIKE. */
-function escapeLikePattern(value: string): string {
+export function escapeLikePattern(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
