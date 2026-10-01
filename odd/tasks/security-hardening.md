@@ -29,8 +29,8 @@
 | T1 | Auth hardening: MFA attempt limit + revoke + TOTP replay; lockout per (user, IP); recordSuccess after MFA; LoginUserDto fix | back | delegated (back writer) | ✅ | 2a52f71 |
 | T2 | Config defaults (Swagger off, media static on in dev) + `npm audit fix` | back | delegated (back writer) | ✅ | 76ba002, 91fb121 |
 | T3 | Deploy: Caddy (close api, admin host, headers on media), compose `ADMIN_URL`, remove `Caddyfile;C`, runbook section 11 | back | delegated (back writer) | ✅ | 8a797d2 |
-| T4 | Security headers + admin host routing + cookie isolation | front | delegated (front writer, separate repo) | ⬜ | |
-| T5 | MFA code input UX (6 digits, auto-submit, backup-code mode) | front | delegated (front writer) | ⬜ | |
+| T4 | Security headers + admin host routing + cookie isolation | front | delegated (front writer, separate repo) | ✅ | 7104d7e (front) |
+| T5 | MFA code input UX (6 digits, auto-submit, backup-code mode) | front | delegated (front writer) | ✅ | f114e93 (front) |
 
 ## Acceptance criteria
 
@@ -44,6 +44,8 @@
 - 2026-10-01 T1 (2a52f71): RED = new specs failed (7 failing tests: LoginUserDto non-string 500/throw, TOTP replay x4; compile errors for the new login(ip)/clearPasswordFailures/MfaController signatures); GREEN = `npx jest src/auth` 63/63. MFA failures counted per user via LoginThrottleService key `mfa:<userId>` (5 in 15 min -> 429 for 15 min, mfaToken revoked on the 5th failure); TOTP replay = last accepted step per user in memory (otplib `checkDelta`, no migration: ~90 s window, single instance, same trade-off as the throttle); password lockout keyed by (userName, IP) via `@Ip()`; password failures cleared only after MFA success for MFA users (`clearPasswordFailures`); LoginUserDto transform guarded.
 - 2026-10-01 T2 (76ba002, 91fb121): RED = media.config spec for default `serveStatic` true outside production failed (1 failing); GREEN = `npx jest src/media` 35/35. Swagger opt-in (`SWAGGER_ENABLED === 'true'`). `npm audit fix` (no --force): 5 high + 2 moderate -> 2 moderate left (js-yaml 5.3.0 pinned exactly by @nestjs/swagger 11.4.7, no fix upstream). Full suite 465/465, build OK.
 - 2026-10-01 T3 (8a797d2): config only, validated by review (no Docker): Caddy api host closed to /media + /api/health, new admin host with X-Robots-Tag, compose `ADMIN_URL`, stray empty `deploy/Caddyfile;C` removed, runbook section 11.
+
+- 2026-10-01 T4/T5 (front): RED then GREEN (host-routing/header helpers 21/21, proxy 20/20, cookies, MFA form 15/15); full suite 658 pass, lint 0 errors, build ok; `next start` with simulated Host headers showed CSP/HSTS/frame headers and the 308 redirects. Site CSP uses 'unsafe-inline' scripts (nonce would force dynamic rendering of static pages); admin uses nonce + 'strict-dynamic'. Prod cookies `__Host-siricman_admin_*`, path=/.
 
 ## Next step
 
