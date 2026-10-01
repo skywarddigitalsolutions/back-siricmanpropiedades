@@ -125,5 +125,63 @@ BACKUP_KEEP=1 bash "$BACKUP_SH" > /dev/null 2>&1
 [ -e "$BACKUP_DIR/backup.log" ] && [ "$(count "$BACKUP_DIR" 'siricman-*.dump')" -eq 1 ]
 check "rotation only touches siricman-*.dump files" $?
 
+# --- pg-restore.sh --------------------------------------------------------
+
+make_dump() { printf 'FAKEDUMP' > "$CASE_DIR/restore-me.dump"; }
+log_line() { grep -n "$1" "$STUB_LOG" | head -1 | cut -d: -f1; } # first line number matching
+
+new_case
+bash "$RESTORE_SH" --yes "$CASE_DIR/does-not-exist.dump" > /dev/null 2>&1; rc=$?
+[ "$rc" -ne 0 ] && ! grep -q 'stop' "$STUB_LOG"
+check "restore: missing file exits non-zero without touching docker" $?
+
+new_case
+make_dump
+echo "no" | bash "$RESTORE_SH" "$CASE_DIR/restore-me.dump" > /dev/null 2>&1; rc=$?
+[ "$rc" -ne 0 ] && ! grep -q 'pg_restore' "$STUB_LOG" && ! grep -q ' stop ' "$STUB_LOG" \
+  && [ "$(count "$BACKUP_DIR" '*')" -eq 0 ]
+check "restore: wrong confirmation word aborts before any docker call" $?
+
+new_case
+make_dump
+bash "$RESTORE_SH" "$CASE_DIR/restore-me.dump" > /dev/null 2>&1 < /dev/null; rc=$?
+[ "$rc" -ne 0 ] && ! grep -q 'pg_restore' "$STUB_LOG"
+check "restore: no confirmation (empty stdin) aborts" $?
+
+new_case
+make_dump
+bash "$RESTORE_SH" --yes "$CASE_DIR/restore-me.dump" > /dev/null 2>&1; rc=$?
+dump_l="$(log_line 'pg_dump')"; stop_l="$(log_line ' stop api')"
+restore_l="$(log_line 'pg_restore --clean --if-exists --no-owner')"; start_l="$(log_line ' start api')"
+[ "$rc" -eq 0 ] && [ -n "$dump_l" ] && [ -n "$stop_l" ] && [ -n "$restore_l" ] && [ -n "$start_l" ] \
+  && [ "$dump_l" -lt "$stop_l" ] && [ "$stop_l" -lt "$restore_l" ] && [ "$restore_l" -lt "$start_l" ] \
+  && [ "$(count "$BACKUP_DIR" 'siricman-*.dump')" -eq 1 ]
+check "restore --yes: safety dump, then stop, restore, start in order" $?
+
+new_case
+make_dump
+echo "RESTAURAR" | bash "$RESTORE_SH" "$CASE_DIR/restore-me.dump" > /dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && grep -q 'pg_restore --clean' "$STUB_LOG"
+check "restore: typing RESTAURAR confirms" $?
+
+new_case
+make_dump
+STUB_FAIL_DUMP=1 bash "$RESTORE_SH" --yes "$CASE_DIR/restore-me.dump" > /dev/null 2>&1; rc=$?
+[ "$rc" -ne 0 ] && ! grep -q ' stop ' "$STUB_LOG" && ! grep -q 'pg_restore --clean' "$STUB_LOG"
+check "restore: failed safety dump aborts before stopping the API" $?
+
+new_case
+make_dump
+BACKUP_MIN_FREE_MB=999999999 bash "$RESTORE_SH" --yes "$CASE_DIR/restore-me.dump" > /dev/null 2>&1; rc=$?
+[ "$rc" -ne 0 ] && ! grep -q ' stop ' "$STUB_LOG" && ! grep -q 'pg_restore --clean' "$STUB_LOG"
+check "restore: skipped safety dump (low disk) aborts the restore" $?
+
+new_case
+make_dump
+STUB_FAIL_RESTORE=1 bash "$RESTORE_SH" --yes "$CASE_DIR/restore-me.dump" > /dev/null 2>&1; rc=$?
+stop_l="$(log_line ' stop api')"; start_l="$(log_line ' start api')"
+[ "$rc" -ne 0 ] && [ -n "$stop_l" ] && [ -n "$start_l" ] && [ "$stop_l" -lt "$start_l" ]
+check "restore: failing pg_restore still restarts the API and exits non-zero" $?
+
 echo
 if [ "$FAILURES" -eq 0 ]; then echo "All tests passed."; else echo "$FAILURES test(s) failed."; exit 1; fi
