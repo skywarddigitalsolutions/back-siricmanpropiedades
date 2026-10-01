@@ -21,4 +21,6 @@ export enum AuditAction {
   PROPERTY_IMAGE_UPLOADED = 'property.image_uploaded',
   PROPERTY_IMAGE_REORDERED = 'property.image_reordered',
   PROPERTY_IMAGE_DELETED = 'property.image_deleted',
+  LEAD_UPDATED = 'lead.updated',
+  LEAD_DELETED = 'lead.deleted',
 }
