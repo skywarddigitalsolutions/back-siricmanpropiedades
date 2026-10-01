@@ -179,6 +179,10 @@ describe('PublicPropertiesService', () => {
         { operation: Operation.SALE },
       );
       expect(queryBuilder.orderBy).toHaveBeenCalledWith(
+        'property.dealStatus',
+        'ASC',
+      );
+      expect(queryBuilder.addOrderBy).toHaveBeenCalledWith(
         'property.firstPublishedAt',
         'DESC',
       );

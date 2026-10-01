@@ -103,6 +103,20 @@ export class PublicPropertyFiltersDto {
   @IsBoolean()
   petsAllowed?: boolean;
 
+  @ApiPropertyOptional({ description: 'Only featured properties when true' })
+  @IsOptional()
+  @Transform(toQueryBoolean)
+  @IsBoolean()
+  featured?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Exact property code, case-insensitive, e.g. "SP-0007"',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  code?: string;
+
   @ApiPropertyOptional({ minimum: 0 })
   @IsOptional()
   @Type(() => Number)
