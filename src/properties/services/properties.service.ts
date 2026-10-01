@@ -19,12 +19,17 @@ import {
   formatPropertyCode,
 } from '../helpers/property-identifiers';
 import { assertPublicationTransition } from '../helpers/property-lifecycle';
+import { isDealStatusAllowedForOperation } from '../helpers/deal-status-rule';
 import {
   buildAdminPropertyQuery,
   NEIGHBORHOOD_ALIAS,
   PROPERTY_ALIAS,
 } from '../helpers/property-query.builder';
-import { PublicationStatus, DealStatus } from '../enums/property.enums';
+import {
+  PublicationStatus,
+  DealStatus,
+  Operation,
+} from '../enums/property.enums';
 import { AuditLogService } from '../../audit/audit-log.service';
 import { AuditAction } from '../../audit/enums/audit-action.enum';
 import { AuditActor } from '../../audit/interfaces/audit-actor.interface';
@@ -178,6 +183,19 @@ export class PropertiesService {
     actor?: AuditActor,
   ): Promise<Property> {
     const property = await this.findOne(id);
+
+    // Checked before mutating so a rejected request leaves no partial change.
+    if (
+      updatePropertyDto.operation !== undefined &&
+      updatePropertyDto.operation !== property.operation &&
+      !isDealStatusAllowedForOperation(
+        updatePropertyDto.operation,
+        property.dealStatus,
+      )
+    )
+      throw new BadRequestException(
+        `Cannot change operation to "${updatePropertyDto.operation}" while the property is "${property.dealStatus}"; set the deal status to available or reserved first`,
+      );
 
     const dtoRecord = updatePropertyDto as unknown as Record<string, unknown>;
     const propertyRecord = property as unknown as Record<string, unknown>;
@@ -361,7 +379,9 @@ export class PropertiesService {
 
   /**
    * Sets `dealStatus`, independent of `publicationStatus`. Setting the
-   * current value again is a 400 (no save, no audit).
+   * current value again, or a status incompatible with the property's
+   * `operation` (`sold` on rent, `rented` on sale), is a 400 (no save, no
+   * audit).
    */
   async updateDealStatus(
     id: string,
@@ -373,6 +393,12 @@ export class PropertiesService {
     if (from === dealStatus)
       throw new BadRequestException(
         `Property already has dealStatus "${dealStatus}"`,
+      );
+    if (!isDealStatusAllowedForOperation(property.operation, dealStatus))
+      throw new BadRequestException(
+        `Deal status "${dealStatus}" is only allowed for ${
+          dealStatus === DealStatus.SOLD ? Operation.SALE : Operation.RENT
+        } properties`,
       );
 
     property.dealStatus = dealStatus;

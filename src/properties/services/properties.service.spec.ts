@@ -176,6 +176,55 @@ describe('PropertiesService', () => {
       expect(result.slug).toBe('departamento-3-ambientes-en-palermo-sp-101');
     });
 
+    it('rejects changing the operation while the deal status would become incompatible, without mutating, saving or auditing', async () => {
+      const current: Record<string, unknown> = existingProperty({
+        operation: Operation.SALE,
+        dealStatus: DealStatus.SOLD,
+      });
+      propertyRepository.findOne.mockResolvedValue(current);
+
+      await expect(
+        service.update('property-1', {
+          operation: Operation.RENT,
+          price: 160000,
+        }),
+      ).rejects.toThrow(
+        'Cannot change operation to "rent" while the property is "sold"; set the deal status to available or reserved first',
+      );
+
+      expect(current.operation).toBe(Operation.SALE);
+      expect(current).not.toHaveProperty('price');
+      expect(propertyRepository.save).not.toHaveBeenCalled();
+      expect(auditLogService.record).not.toHaveBeenCalled();
+    });
+
+    it('allows changing the operation while the property is available or reserved', async () => {
+      for (const dealStatus of [DealStatus.AVAILABLE, DealStatus.RESERVED]) {
+        propertyRepository.findOne.mockResolvedValue(
+          existingProperty({ operation: Operation.SALE, dealStatus }),
+        );
+
+        const result = await service.update('property-1', {
+          operation: Operation.RENT,
+        });
+
+        expect(result.operation).toBe(Operation.RENT);
+      }
+    });
+
+    it('does not reject a sold property when the operation is unchanged', async () => {
+      propertyRepository.findOne.mockResolvedValue(
+        existingProperty({
+          operation: Operation.SALE,
+          dealStatus: DealStatus.SOLD,
+        }),
+      );
+
+      await expect(
+        service.update('property-1', { operation: Operation.SALE, price: 1 }),
+      ).resolves.toBeDefined();
+    });
+
     it('is a no-op (no save, no audit) when the computed set of changed fields is empty', async () => {
       propertyRepository.findOne.mockResolvedValue(existingProperty());
 
@@ -562,6 +611,7 @@ describe('PropertiesService', () => {
       return {
         id: 'property-1',
         code: 'SP-101',
+        operation: Operation.SALE,
         dealStatus: DealStatus.AVAILABLE,
         neighborhood: { id: 'neighborhood-1', name: 'Palermo' },
         ...overrides,
@@ -593,6 +643,47 @@ describe('PropertiesService', () => {
         }),
       );
     });
+
+    it.each([
+      [Operation.RENT, DealStatus.SOLD, 'sale'],
+      [Operation.SALE, DealStatus.RENTED, 'rent'],
+    ])(
+      'rejects an incompatible status (%s + %s) without saving or auditing',
+      async (operation, dealStatus, allowedOperation) => {
+        propertyRepository.findOne.mockResolvedValue(property({ operation }));
+
+        await expect(
+          service.updateDealStatus('property-1', dealStatus),
+        ).rejects.toThrow(
+          `Deal status "${dealStatus}" is only allowed for ${allowedOperation} properties`,
+        );
+
+        expect(propertyRepository.save).not.toHaveBeenCalled();
+        expect(auditLogService.record).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([Operation.SALE, Operation.RENT])(
+      'allows available and reserved for %s properties',
+      async (operation) => {
+        for (const dealStatus of [DealStatus.AVAILABLE, DealStatus.RESERVED]) {
+          propertyRepository.findOne.mockResolvedValue(
+            property({
+              operation,
+              dealStatus:
+                dealStatus === DealStatus.AVAILABLE
+                  ? DealStatus.RESERVED
+                  : DealStatus.AVAILABLE,
+            }),
+          );
+          const result = await service.updateDealStatus(
+            'property-1',
+            dealStatus,
+          );
+          expect(result.dealStatus).toBe(dealStatus);
+        }
+      },
+    );
 
     it('rejects setting the current value again, without saving or auditing', async () => {
       propertyRepository.findOne.mockResolvedValue(
