@@ -5,7 +5,7 @@
 #
 # Flow: validate file -> confirm (type RESTAURAR, or --yes) -> safety dump of the
 # current database via pg-backup.sh (abort if it fails or is skipped) -> stop
-# `api` -> pg_restore --clean -> start `api` again (also when the restore fails).
+# `api` -> pg_restore --clean (single transaction: all or nothing) -> start `api` again (also when the restore fails).
 #
 # Env: SIRICMAN_DIR (default $HOME/siricman); BACKUP_* are forwarded to
 # pg-backup.sh for the safety dump.
@@ -68,7 +68,7 @@ trap start_api EXIT
 
 log "Restoring $dump_file..."
 dc exec -T db sh -c \
-  'pg_restore --clean --if-exists --no-owner -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  'pg_restore --clean --if-exists --no-owner --single-transaction -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < "$dump_file"
 
 log "OK: restore finished."
