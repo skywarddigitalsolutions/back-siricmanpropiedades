@@ -3,6 +3,7 @@ import {
   Post,
   Body,
   Headers,
+  Ip,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -16,6 +17,7 @@ import {
 } from '@nestjs/swagger';
 import { MfaService } from './mfa.service';
 import { AuthService } from '../auth.service';
+import { LoginThrottleService } from '../login-throttle.service';
 import { Auth, GetUser } from '../decorators';
 import { User } from '../../users/entities/user.entity';
 import {
@@ -37,6 +39,7 @@ export class MfaController {
   constructor(
     private readonly mfaService: MfaService,
     private readonly authService: AuthService,
+    private readonly loginThrottleService: LoginThrottleService,
   ) {}
 
   /** POST /api/auth/mfa/enable */
@@ -121,7 +124,9 @@ export class MfaController {
     summary: 'Segundo paso del login (con MFA ya habilitado)',
     description:
       'Recibe el "mfaToken" devuelto por /auth/login y un código (TOTP o de ' +
-      'respaldo). El mfaToken se revoca al usarse, sea cual sea el resultado.',
+      'respaldo). El mfaToken se revoca al verificar con éxito, o al 5.º ' +
+      'código incorrecto. Los fallos se cuentan por usuario (no por IP): ' +
+      'tras 5 se bloquean los intentos de ese usuario por 15 minutos.',
   })
   @ApiResponse({
     status: 201,
@@ -130,16 +135,34 @@ export class MfaController {
   @ApiUnauthorizedResponse({
     description: 'mfaToken inválido/expirado/revocado, o código incorrecto',
   })
-  @ApiTooManyRequestsResponse({ description: 'Más de 5 intentos por minuto' })
+  @ApiTooManyRequestsResponse({
+    description:
+      'Más de 5 intentos por minuto (IP) o usuario bloqueado por 5 códigos incorrectos',
+  })
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('verify')
-  async verify(@Body() dto: VerifyMfaDto) {
+  async verify(@Body() dto: VerifyMfaDto, @Ip() ip: string) {
     const user = await this.authService.resolveUserFromToken(dto.mfaToken, [
       'mfa_verify',
     ]);
 
+    // Límite por usuario (no por IP): un atacante con un mfaToken válido no
+    // puede probar códigos sin tope rotando de IP. Aplica a TOTP y respaldo.
+    const mfaKey = LoginThrottleService.mfaKey(user.id);
+    this.loginThrottleService.assertNotLocked(mfaKey);
+
     const isValid = await this.mfaService.verifyLoginCode(user.id, dto.code);
-    if (!isValid) throw new UnauthorizedException('Invalid code');
+    if (!isValid) {
+      // Al llegar al límite el mfaToken se revoca: hay que volver a loguearse
+      // (y el usuario sigue bloqueado hasta que venza la ventana).
+      if (this.loginThrottleService.recordFailure(mfaKey)) {
+        await this.authService.logout(dto.mfaToken);
+      }
+      throw new UnauthorizedException('Invalid code');
+    }
+
+    this.loginThrottleService.recordSuccess(mfaKey);
+    this.authService.clearPasswordFailures(user.userName, ip);
 
     // El mfaToken ya cumplió su propósito: se revoca para que no sea reutilizable.
     await this.authService.logout(dto.mfaToken);

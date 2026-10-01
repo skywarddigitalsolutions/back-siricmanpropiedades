@@ -30,6 +30,13 @@ import { LoginThrottleService } from './login-throttle.service';
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, LoginThrottleService],
-  exports: [AuthService, JwtStrategy, TypeOrmModule, PassportModule, JwtModule],
+  exports: [
+    AuthService,
+    LoginThrottleService,
+    JwtStrategy,
+    TypeOrmModule,
+    PassportModule,
+    JwtModule,
+  ],
 })
 export class AuthModule {}

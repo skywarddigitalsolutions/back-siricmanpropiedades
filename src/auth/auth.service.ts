@@ -38,11 +38,12 @@ export class AuthService {
    * para evitar enumeración de usuarios (no revela si el userName no
    * existe, la password es incorrecta o la cuenta está inactiva).
    */
-  async login(loginUserDto: LoginUserDto) {
+  async login(loginUserDto: LoginUserDto, clientIp = 'unknown') {
     const { userName, password } = loginUserDto;
+    const throttleKey = LoginThrottleService.loginKey(userName, clientIp);
 
-    // Bloqueo por cuenta (además del rate limit por IP del ThrottlerGuard).
-    this.loginThrottleService.assertNotLocked(userName);
+    // Bloqueo por (cuenta, IP), además del rate limit por IP del ThrottlerGuard.
+    this.loginThrottleService.assertNotLocked(throttleKey);
 
     const user = await this.userRepository.findOne({
       where: { userName: userName.toLowerCase().trim() },
@@ -62,11 +63,14 @@ export class AuthService {
     );
 
     if (!user || !isPasswordValid || !user.isActive) {
-      this.loginThrottleService.recordFailure(userName);
+      this.loginThrottleService.recordFailure(throttleKey);
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    this.loginThrottleService.recordSuccess(userName);
+    // Con MFA activo la password sola no prueba nada: el contador de fallos
+    // se limpia recién cuando el segundo factor también pasa (ver
+    // clearPasswordFailures, llamado por POST /auth/mfa/verify).
+    if (!user.mfaEnabled) this.loginThrottleService.recordSuccess(throttleKey);
 
     const isAdmin = user.userRoles.some(
       (userRole) => userRole.role?.name.toLowerCase() === 'admin',
@@ -89,6 +93,13 @@ export class AuthService {
     }
 
     return this.buildSessionResponse(user);
+  }
+
+  /** Limpia los fallos de password de (userName, IP) tras completar el MFA. */
+  clearPasswordFailures(userName: string, clientIp: string): void {
+    this.loginThrottleService.recordSuccess(
+      LoginThrottleService.loginKey(userName, clientIp),
+    );
   }
 
   /**

@@ -99,6 +99,101 @@ describe('AuthService', () => {
       ).rejects.toMatchObject({ status: 429 });
     });
 
+    it('keys the lockout by (userName, IP): failures from IP A do not lock the user out from IP B', async () => {
+      userRepository.findOne.mockResolvedValue(null);
+      const wrong = { userName: 'victim', password: 'Wrong1' } as any;
+
+      for (let i = 0; i < 5; i++) {
+        await expect(service.login(wrong, '1.1.1.1')).rejects.toThrow(
+          UnauthorizedException,
+        );
+      }
+      await expect(service.login(wrong, '1.1.1.1')).rejects.toMatchObject({
+        status: 429,
+      });
+
+      // Desde otra IP la cuenta sigue accesible (no es 429).
+      await expect(service.login(wrong, '2.2.2.2')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('does not reset password failures on a correct password when MFA is still pending', async () => {
+      const hashedPassword = await bcrypt.hash('Password1', 10);
+      userRepository.findOne.mockResolvedValue({
+        id: 'user-id',
+        userName: 'john',
+        password: hashedPassword,
+        isActive: true,
+        mfaEnabled: true,
+        userRoles: [{ role: { name: 'user' } }],
+      });
+      const wrong = { userName: 'john', password: 'Wrong1' } as any;
+
+      for (let i = 0; i < 4; i++) {
+        await expect(service.login(wrong, '1.1.1.1')).rejects.toThrow(
+          UnauthorizedException,
+        );
+      }
+      // Password correcta (falta MFA): no limpia el contador.
+      await service.login(
+        { userName: 'john', password: 'Password1' },
+        '1.1.1.1',
+      );
+      // El quinto fallo ya bloquea.
+      await expect(service.login(wrong, '1.1.1.1')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      await expect(service.login(wrong, '1.1.1.1')).rejects.toMatchObject({
+        status: 429,
+      });
+    });
+
+    it('clearPasswordFailures (called after MFA succeeds) resets the counter', async () => {
+      userRepository.findOne.mockResolvedValue(null);
+      const wrong = { userName: 'john', password: 'Wrong1' } as any;
+
+      for (let i = 0; i < 4; i++) {
+        await expect(service.login(wrong, '1.1.1.1')).rejects.toThrow(
+          UnauthorizedException,
+        );
+      }
+      service.clearPasswordFailures('John', '1.1.1.1');
+      for (let i = 0; i < 2; i++) {
+        await expect(service.login(wrong, '1.1.1.1')).rejects.toThrow(
+          UnauthorizedException,
+        );
+      }
+    });
+
+    it('resets password failures immediately for users without MFA', async () => {
+      const hashedPassword = await bcrypt.hash('Password1', 10);
+      userRepository.findOne.mockResolvedValue({
+        id: 'user-id',
+        userName: 'john',
+        password: hashedPassword,
+        isActive: true,
+        mfaEnabled: false,
+        userRoles: [{ role: { name: 'user' } }],
+      });
+      const wrong = { userName: 'john', password: 'Wrong1' } as any;
+
+      for (let i = 0; i < 4; i++) {
+        await expect(service.login(wrong, '1.1.1.1')).rejects.toThrow(
+          UnauthorizedException,
+        );
+      }
+      await service.login(
+        { userName: 'john', password: 'Password1' },
+        '1.1.1.1',
+      );
+      for (let i = 0; i < 4; i++) {
+        await expect(service.login(wrong, '1.1.1.1')).rejects.toThrow(
+          UnauthorizedException,
+        );
+      }
+    });
+
     it('returns mfaRequired + a short-lived mfaToken instead of a full session when MFA is enabled', async () => {
       const hashedPassword = await bcrypt.hash('Password1', 10);
       userRepository.findOne.mockResolvedValue({

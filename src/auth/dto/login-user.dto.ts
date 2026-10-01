@@ -10,7 +10,9 @@ import {
 
 export class LoginUserDto {
   @ApiProperty({ example: 'admin' })
-  @Transform(({ value }: { value: string }) => value.toLowerCase().trim())
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.toLowerCase().trim() : value,
+  )
   @IsString()
   @MinLength(2)
   userName: string;
