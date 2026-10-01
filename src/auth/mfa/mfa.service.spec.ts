@@ -229,6 +229,64 @@ describe('MfaService', () => {
     });
   });
 
+  describe('TOTP replay protection', () => {
+    afterEach(() => jest.restoreAllMocks());
+
+    const mfaUser = (secret: string, id = 'user-1') => ({
+      id,
+      mfaEnabled: true,
+      mfaSecret: encryptSecret(secret, TEST_ENCRYPTION_KEY),
+    });
+
+    it('rejects the same TOTP code the second time', async () => {
+      const secret = authenticator.generateSecret();
+      userRepository.findOne.mockResolvedValue(mfaUser(secret));
+      const code = authenticator.generate(secret);
+
+      expect(await service.verifyLoginCode('user-1', code)).toBe(true);
+      expect(await service.verifyLoginCode('user-1', code)).toBe(false);
+    });
+
+    it('rejects a code from an earlier time step than the last accepted one, accepts a later one', async () => {
+      const secret = authenticator.generateSecret();
+      userRepository.findOne.mockResolvedValue(mfaUser(secret));
+      const now = 1_700_000_010_000;
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
+
+      const current = authenticator.generate(secret);
+      nowSpy.mockReturnValue(now - 30_000);
+      const previous = authenticator.generate(secret);
+      nowSpy.mockReturnValue(now + 30_000);
+      const next = authenticator.generate(secret);
+      nowSpy.mockReturnValue(now);
+
+      expect(await service.verifyLoginCode('user-1', current)).toBe(true);
+      expect(await service.verifyLoginCode('user-1', previous)).toBe(false);
+      expect(await service.verifyLoginCode('user-1', next)).toBe(true);
+    });
+
+    it('tracks the last used step per user', async () => {
+      const secret = authenticator.generateSecret();
+      const code = authenticator.generate(secret);
+
+      userRepository.findOne.mockResolvedValue(mfaUser(secret, 'user-1'));
+      expect(await service.verifyLoginCode('user-1', code)).toBe(true);
+
+      userRepository.findOne.mockResolvedValue(mfaUser(secret, 'user-2'));
+      expect(await service.verifyLoginCode('user-2', code)).toBe(true);
+    });
+
+    it('does not consume a time step on a failed verification', async () => {
+      const secret = authenticator.generateSecret();
+      userRepository.findOne.mockResolvedValue(mfaUser(secret));
+
+      expect(await service.verifyLoginCode('user-1', '000000')).toBe(false);
+      expect(
+        await service.verifyLoginCode('user-1', authenticator.generate(secret)),
+      ).toBe(true);
+    });
+  });
+
   describe('verifyLoginCode / backup codes', () => {
     it('accepts a valid TOTP code', async () => {
       const secret = authenticator.generateSecret();

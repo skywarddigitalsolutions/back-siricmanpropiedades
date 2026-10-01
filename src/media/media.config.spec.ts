@@ -42,8 +42,34 @@ describe('loadMediaConfig', () => {
     expect(config.publicBaseUrl).toBe('http://localhost:3000/media');
   });
 
-  it('defaults MEDIA_SERVE_STATIC to false', () => {
-    const config = loadMediaConfig(new FakeConfigService() as any);
+  it('defaults MEDIA_SERVE_STATIC to true outside production when unset', () => {
+    expect(loadMediaConfig(new FakeConfigService() as any).serveStatic).toBe(
+      true,
+    );
+    expect(
+      loadMediaConfig(new FakeConfigService({ NODE_ENV: 'development' }) as any)
+        .serveStatic,
+    ).toBe(true);
+  });
+
+  it('defaults MEDIA_SERVE_STATIC to false in production when unset', () => {
+    const config = loadMediaConfig(
+      new FakeConfigService({
+        NODE_ENV: 'production',
+        MEDIA_PUBLIC_BASE_URL: 'https://api.example.com/media',
+      }) as any,
+    );
+
+    expect(config.serveStatic).toBe(false);
+  });
+
+  it('honors an explicit MEDIA_SERVE_STATIC=false outside production', () => {
+    const config = loadMediaConfig(
+      new FakeConfigService({
+        NODE_ENV: 'development',
+        MEDIA_SERVE_STATIC: 'false',
+      }) as any,
+    );
 
     expect(config.serveStatic).toBe(false);
   });

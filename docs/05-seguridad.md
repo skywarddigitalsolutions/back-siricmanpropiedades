@@ -71,14 +71,16 @@ Más detalle de cómo se usa en la práctica: [Login y doble factor (MFA)](04-lo
 |-----------|----------------|-------|
 | Límite global por IP | 20 pedidos por minuto en todos los endpoints | `app.module.ts` (`ThrottlerModule` + `APP_GUARD`) |
 | Límite reforzado en endpoints sensibles | 5 pedidos por minuto en login y en los 4 endpoints de MFA | `auth.controller.ts`, `auth/mfa/mfa.controller.ts` (`@Throttle`) |
-| Bloqueo por cuenta | 5 fallos de login en 15 minutos bloquean esa cuenta 15 minutos, sin importar desde cuántas direcciones distintas se intente — cubre lo que el límite por IP no cubre | `auth/login-throttle.service.ts`, usado desde `auth.service.ts` (`login`) |
+| Bloqueo por cuenta e IP | 5 fallos de login en 15 minutos desde la misma IP bloquean esa combinación (cuenta + IP) 15 minutos. Atarlo a la IP evita que un atacante bloquee al admin real desde otra dirección | `auth/login-throttle.service.ts`, usado desde `auth.service.ts` (`login`) |
+| Límite de intentos de MFA por usuario | 5 códigos incorrectos (TOTP o de respaldo) en 15 minutos bloquean los intentos de ese usuario 15 minutos desde cualquier IP, y el `mfaToken` en uso se revoca. Los fallos de contraseña se limpian recién cuando el MFA también pasa | `auth/mfa/mfa.controller.ts` (`verify`), `auth.service.ts` (`clearPasswordFailures`) |
+| Código TOTP de un solo uso | Se recuerda el último paso TOTP aceptado por usuario (en memoria) y se rechaza un código de ese paso o de uno anterior | `auth/mfa/mfa.service.ts` (`verifyTotp`) |
 | IP real detrás de proxy/PaaS | `TRUST_PROXY` configurable para que el límite por IP no colapse (o sea evadible) cuando la app corre detrás de Railway/Render/Cloudflare/nginx | `main.ts` |
 
 > **En números:** login está limitado a 5 intentos por minuto por dirección
 > IP (el resto de endpoints usa el límite global de 20/min), y además a 5
-> fallos cada 15 minutos por cuenta — esto último cubre un ataque que
-> pruebe contraseñas contra la misma cuenta desde muchas direcciones IP
-> distintas a la vez. El contador por cuenta vive en la memoria del
+> fallos cada 15 minutos por cuenta e IP (así nadie puede bloquear a un
+> usuario ajeno desde otra dirección), más 5 códigos MFA incorrectos por
+> usuario, sin importar la IP. Estos contadores viven en la memoria del
 > proceso: si se corren varias instancias detrás de un balanceador de
 > carga, cada una cuenta por separado (para un límite realmente global
 > haría falta un almacenamiento compartido como Redis).
@@ -94,7 +96,7 @@ Más detalle de cómo se usa en la práctica: [Login y doble factor (MFA)](04-lo
 | Esquema de base de datos versionado | El esquema se gestiona con migraciones; el modo "auto-sincronizar" está apagado salvo que se fuerce explícitamente, y solo para desarrollo local | `app.module.ts`, `src/migrations/` |
 | Seed no reutilizable con credenciales públicas | Las contraseñas de prueba del `.env.example` son públicas (están en el repo); en producción la app se niega a crear usuarios de prueba si siguen siendo esas | `seed/seed.service.ts` |
 | Cierre limpio del proceso | Al apagar el servidor (por ejemplo durante un despliegue), se frenan las tareas programadas y se cierran las conexiones a la base de forma ordenada | `main.ts` |
-| Documentación no expuesta en producción (opcional) | La documentación interactiva completa se puede apagar para no publicar el mapa completo de la API | `main.ts` (`SWAGGER_ENABLED`) |
+| Documentación apagada por defecto | La documentación interactiva solo se activa con `SWAGGER_ENABLED=true`, para no publicar el mapa completo de la API por olvido | `main.ts` (`SWAGGER_ENABLED`) |
 
 ### Trazabilidad
 

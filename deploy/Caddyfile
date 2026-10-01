@@ -7,6 +7,15 @@
 	reverse_proxy web:3000
 }
 
+# Panel de administración en su propio host: el front enruta por Host (el
+# panel solo se sirve acá) y agrega los encabezados de seguridad. Caddy
+# obtiene el certificado solo; el registro DNS "A admin" lo crea el usuario.
+admin.{$SITE_DOMAIN} {
+	encode zstd gzip
+	header X-Robots-Tag "noindex, nofollow"
+	reverse_proxy web:3000
+}
+
 www.{$SITE_DOMAIN} {
 	redir https://{$SITE_DOMAIN}{uri} permanent
 }
@@ -24,7 +33,13 @@ www.{$SITE_DOMAIN} {
 		header X-Content-Type-Options nosniff
 		file_server
 	}
-	handle {
+	# El navegador nunca llama a la API: el front la consume por la red interna
+	# (http://api:3000). Hacia afuera solo quedan /media/* y el health check
+	# (UptimeRobot); todo lo demás da 404.
+	handle /api/health {
 		reverse_proxy api:3000
+	}
+	handle {
+		respond 404
 	}
 }

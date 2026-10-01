@@ -18,11 +18,22 @@ import { AuditAction } from '../../audit/enums/audit-action.enum';
 import { AuditActor } from '../../audit/interfaces/audit-actor.interface';
 
 const BACKUP_CODES_COUNT = 10;
+// Pasos TOTP de 30 s (otplib por defecto).
+const TOTP_STEP_MS = 30_000;
+const MAX_TRACKED_TOTP_USERS = 10_000;
 
 @Injectable()
 export class MfaService {
   private readonly encryptionKey: string;
   private readonly issuer: string;
+  /**
+   * Último paso TOTP aceptado por usuario (anti-replay: un código ya usado,
+   * o de un paso anterior, no sirve de nuevo dentro de la ventana de ±1
+   * paso). En memoria a propósito: la ventana dura ~90 s, así que reiniciar
+   * el proceso solo reabre un replay de esa ventana, y evita una migración.
+   * Igual que LoginThrottleService, asume una sola instancia.
+   */
+  private readonly lastTotpStep = new Map<string, number>();
 
   constructor(
     @InjectRepository(User)
@@ -104,7 +115,7 @@ export class MfaService {
       );
 
     const secret = decryptSecret(user.mfaSecret, this.encryptionKey);
-    if (!authenticator.verify({ token: code, secret })) {
+    if (!this.verifyTotp(userId, secret, code)) {
       throw new BadRequestException('Invalid code');
     }
 
@@ -186,9 +197,38 @@ export class MfaService {
   ): Promise<boolean> {
     if (user.mfaSecret) {
       const secret = decryptSecret(user.mfaSecret, this.encryptionKey);
-      if (authenticator.verify({ token: code, secret })) return true;
+      if (this.verifyTotp(user.id, secret, code)) return true;
     }
     return this.consumeBackupCode(user.id, code);
+  }
+
+  /**
+   * Verifica un TOTP y, si es válido, exige que su paso sea mayor al último
+   * aceptado para el usuario. Chequeo y registro son síncronos (sin await
+   * en el medio), así que dos requests simultáneos no pueden aceptar el
+   * mismo paso.
+   */
+  private verifyTotp(userId: string, secret: string, code: string): boolean {
+    const delta = authenticator.checkDelta(code, secret);
+    if (delta === null) return false;
+
+    const step = Math.floor(Date.now() / TOTP_STEP_MS) + delta;
+    const last = this.lastTotpStep.get(userId);
+    if (last !== undefined && step <= last) return false;
+
+    this.rememberTotpStep(userId, step);
+    return true;
+  }
+
+  private rememberTotpStep(userId: string, step: number): void {
+    if (this.lastTotpStep.size >= MAX_TRACKED_TOTP_USERS) {
+      // Los pasos viejos (fuera de la ventana de ±1) ya no protegen nada.
+      const currentStep = Math.floor(Date.now() / TOTP_STEP_MS);
+      for (const [id, s] of this.lastTotpStep) {
+        if (s < currentStep - 2) this.lastTotpStep.delete(id);
+      }
+    }
+    this.lastTotpStep.set(userId, step);
   }
 
   private async consumeBackupCode(

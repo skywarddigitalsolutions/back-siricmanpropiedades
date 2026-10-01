@@ -34,7 +34,10 @@ export function loadMediaConfig(config: ConfigService): MediaConfig {
       `MEDIA_SERVE_STATIC must be "true" or "false" (or unset), got: ${serveStaticRaw}`,
     );
   }
-  const serveStatic = serveStaticRaw === 'true';
+  // Sin valor explícito: en desarrollo/test se sirve desde Nest (si no, las
+  // fotos dan 404 sin Caddy); en producción las sirve Caddy.
+  const serveStatic =
+    serveStaticRaw === undefined ? !isProduction : serveStaticRaw === 'true';
   if (serveStatic && isProduction) {
     throw new Error(
       'MEDIA_SERVE_STATIC=true is not allowed when NODE_ENV=production; media is served by Caddy in production',

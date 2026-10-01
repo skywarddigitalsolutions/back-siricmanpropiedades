@@ -110,7 +110,7 @@ docker compose logs -f api        # confirmá que corrieron las migraciones y no
 docker compose logs -f caddy      # confirmá que obtuvo el certificado TLS sin errores
 
 curl -I https://<dominio>              # debe responder 200 desde el front
-curl -I https://api.<dominio>/api      # debe responder desde la API (404/401 son normales sin ruta)
+curl -i https://api.<dominio>/api/health   # debe responder 200 (el resto de la API no se expone, ver sección 11)
 curl -I http://www.<dominio>           # debe redirigir (301/308) a https://<dominio>
 
 # Postgres no debe ser alcanzable desde afuera del servidor:
@@ -390,3 +390,54 @@ Después, en [uptimerobot.com](https://uptimerobot.com):
 
 UptimeRobot avisa por email cuando un monitor deja de responder y cuando vuelve.
 No monitorea el cron de respaldos: eso se revisa en `backup.log`.
+
+## 11. Panel en admin.<dominio> y endurecimiento de seguridad
+
+Esta versión mueve el panel de administración a su propio subdominio
+(`https://admin.<dominio>`) y cierra la API al público: `api.<dominio>` solo
+sirve las fotos (`/media/*`) y el health check (`/api/health`); cualquier otra ruta
+responde 404. Esto es seguro porque el navegador nunca llama a la API directamente:
+el front la consume por la red interna de Docker (`http://api:3000`). El sitio
+público y el panel además pasan a enviar encabezados de seguridad (CSP,
+`Strict-Transport-Security`, `X-Frame-Options`, etc.), que agrega el front.
+
+Orden de actualización:
+
+1. **DNS (DonWeb).** Crear el registro `A admin` apuntando a la misma IP del servidor
+   que ya usan `@` y `api`. No tocar los registros MX, SPF ni DKIM del correo de
+   Google Workspace. Esperar la propagación:
+   `dig +short admin.<dominio>` (o `nslookup admin.<dominio>`) debe devolver la IP del
+   servidor. Hacerlo antes del paso 3: Caddy no puede obtener el certificado hasta
+   que el nombre resuelva.
+2. Copiar al servidor el `compose.yml` y el `Caddyfile` nuevos:
+   `scp -P 5941 deploy/compose.yml deploy/Caddyfile siricman:~/siricman/`
+3. Aplicar los cambios:
+   `docker compose pull && docker compose up -d && docker compose restart caddy`.
+   Caddy obtiene solo el certificado de `admin.<dominio>` (no hace falta ningún cambio
+   en el hosting: el firewall ya permite 80 y 443).
+4. Verificar:
+
+```bash
+curl -I https://admin.<dominio>/admin/login        # 200: el panel responde en su host
+curl -I https://<dominio>/admin                    # redirige al host admin
+curl -i https://api.<dominio>/api/health           # 200: el monitoreo sigue funcionando
+curl -i https://api.<dominio>/api/auth/login -X POST   # 404: la API ya no está expuesta
+curl -I https://api.<dominio>/docs                 # 404: sin Swagger
+curl -I https://api.<dominio>/media/<ruta-de-una-foto>.webp   # 200: las fotos siguen sirviéndose
+curl -I https://<dominio>                          # debe mostrar Content-Security-Policy,
+                                                   # Strict-Transport-Security y
+                                                   # X-Frame-Options (o frame-ancestors en la CSP)
+```
+
+Qué esperar después del cambio:
+
+- Las sesiones activas del panel se pierden una única vez (la cookie de sesión ahora
+  es propia del host admin): hay que volver a iniciar sesión en
+  `https://admin.<dominio>`. Actualizar los marcadores guardados.
+- Swagger queda apagado salvo que el `.env` tenga `SWAGGER_ENABLED=true` (dejarlo
+  sin definir o en `false` en producción); además Caddy ya no expone `/docs`.
+- Los límites de intentos de login y de MFA siguen siendo por instancia (en memoria)
+  y se reinician al reiniciar la API.
+
+La sección 7 (IP real del visitante) no cambia: el panel también llega a `web` a
+través de Caddy, que sigue agregando `X-Forwarded-For`.

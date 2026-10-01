@@ -21,9 +21,9 @@ Para probar endpoints protegidos desde la UI:
 3. A partir de ahí, "Try it out" en cualquier endpoint protegido ya manda
    ese token automáticamente.
 
-Se puede desactivar con `SWAGGER_ENABLED=false` en `.env` (por ejemplo en
-producción, si no querés exponer el esquema completo de la API
-públicamente) — no reemplaza ningún control de acceso, solo genera
+Está apagada por defecto: para usarla en local agregá
+`SWAGGER_ENABLED=true` a tu `.env` (en producción dejala sin definir o en
+`false`, así no se expone el esquema completo de la API) — no reemplaza ningún control de acceso, solo genera
 documentación.
 
 ## Referencia en Markdown

@@ -1,4 +1,12 @@
-import { Controller, Post, Body, Get, Header, Headers } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Header,
+  Headers,
+  Ip,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
   ApiOperation,
@@ -18,8 +26,8 @@ export class AuthController {
 
   /**
    * Login con username y password (público).
-   * Limitado a 5 intentos por minuto por IP y a 5 fallos por cuenta
-   * cada 15 minutos, para dificultar fuerza bruta.
+   * Limitado a 5 intentos por minuto por IP y a 5 fallos por
+   * (cuenta, IP) cada 15 minutos, para dificultar fuerza bruta.
    * POST /api/auth/login
    */
   @ApiOperation({
@@ -46,8 +54,8 @@ export class AuthController {
   })
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('login')
-  login(@Body() loginUserDto: LoginUserDto) {
-    return this.authService.login(loginUserDto);
+  login(@Body() loginUserDto: LoginUserDto, @Ip() ip: string) {
+    return this.authService.login(loginUserDto, ip);
   }
 
   /**
