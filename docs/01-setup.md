@@ -60,21 +60,23 @@ cp .env.example .env
 | `AUDIT_LOG_RETENTION_DAYS` | Días de retención de la auditoría antes de purgarla | `365` |
 | `MFA_ENCRYPTION_KEY` | Clave AES-256-GCM (64 caracteres hex) para cifrar los secretos del doble factor | `openssl rand -hex 32` |
 | `MFA_ISSUER` | Nombre mostrado en la app autenticadora (Google Authenticator, etc.) | `BaseAuth` |
-| `SWAGGER_ENABLED` | Activa/desactiva la documentación interactiva en `/docs` | `true` / `false` |
+| `SWAGGER_ENABLED` | Activa la documentación interactiva en `/docs`. Opcional, **apagada por defecto**: solo se activa con el valor exacto `true` (ponelo en tu `.env` local para usar `/docs`) | `true` |
 | `RUN_SEED` | Ejecutar el seed inicial | `true` / `false` |
 | `SEED_ADMIN_PASSWORD` | Contraseña del usuario admin de prueba | `Admin1234!` |
 | `SEED_MANAGER_PASSWORD` | Contraseña del usuario manager de prueba | `Manager1234!` |
 | `SEED_USER_PASSWORD` | Contraseña del usuario user de prueba | `User1234!` |
 | `MEDIA_ROOT` | Carpeta donde se guardan las fotos de propiedades convertidas (WebP). Opcional: por defecto `storage/media` relativo al proyecto | `storage/media` |
 | `MEDIA_PUBLIC_BASE_URL` | URL pública base desde la que se sirven las fotos. Opcional en desarrollo (por defecto `http://localhost:<PORT>/media`); **obligatoria** y con `https:` si `NODE_ENV=production` | `http://localhost:3000/media` |
-| `MEDIA_SERVE_STATIC` | En desarrollo, sirve las fotos directamente desde Nest en `/media/*` (sin necesitar Caddy). Opcional, por defecto `false`; **rechazado** si `NODE_ENV=production` (ahí las sirve Caddy, ver `deploy/README.md` sección 6) | `true` |
+| `MEDIA_SERVE_STATIC` | En desarrollo, sirve las fotos directamente desde Nest en `/media/*` (sin necesitar Caddy). Opcional: por defecto `true` fuera de producción y `false` en producción; un valor explícito (`true`/`false`) se respeta, pero `true` es **rechazado** si `NODE_ENV=production` (ahí las sirve Caddy, ver `deploy/README.md` sección 6) | `true` |
 
 > Las contraseñas de seed del `.env.example` son públicas (están en el repo):
 > con `NODE_ENV=production` la app **se niega a sembrar** si siguen siendo esas.
 
 > **Nota sobre `MEDIA_*`:** estas tres variables no están en `.env.example`
-> (se documentan solo acá). Para ver las fotos subidas en desarrollo local sin
-> levantar Caddy, agregá `MEDIA_SERVE_STATIC=true` a tu `.env`; `MEDIA_ROOT` y
+> (se documentan solo acá). Las fotos subidas en desarrollo local se ven sin
+> levantar Caddy: `MEDIA_SERVE_STATIC` es `true` por defecto fuera de
+> producción (poné `MEDIA_SERVE_STATIC=false` en tu `.env` si no lo querés);
+> `MEDIA_ROOT` y
 > `MEDIA_PUBLIC_BASE_URL` pueden dejarse sin definir salvo que necesites un
 > valor distinto del default.
 

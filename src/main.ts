@@ -50,10 +50,10 @@ async function bootstrap() {
     }),
   );
 
-  // Documentación interactiva de la API. Se puede apagar en producción
-  // (SWAGGER_ENABLED=false) si no querés exponer el esquema completo
-  // públicamente; no protege ningún endpoint por sí sola, solo genera docs.
-  if (configService.get<string>('SWAGGER_ENABLED', 'true') === 'true') {
+  // Documentación interactiva de la API. Apagada salvo que SWAGGER_ENABLED
+  // sea exactamente 'true' (opt-in: así no se publica el esquema completo por
+  // olvido); no protege ningún endpoint por sí sola, solo genera docs.
+  if (configService.get<string>('SWAGGER_ENABLED') === 'true') {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('NestJS Auth Roles Base API')
       .setDescription(

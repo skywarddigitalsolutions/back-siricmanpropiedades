@@ -96,7 +96,7 @@ Más detalle de cómo se usa en la práctica: [Login y doble factor (MFA)](04-lo
 | Esquema de base de datos versionado | El esquema se gestiona con migraciones; el modo "auto-sincronizar" está apagado salvo que se fuerce explícitamente, y solo para desarrollo local | `app.module.ts`, `src/migrations/` |
 | Seed no reutilizable con credenciales públicas | Las contraseñas de prueba del `.env.example` son públicas (están en el repo); en producción la app se niega a crear usuarios de prueba si siguen siendo esas | `seed/seed.service.ts` |
 | Cierre limpio del proceso | Al apagar el servidor (por ejemplo durante un despliegue), se frenan las tareas programadas y se cierran las conexiones a la base de forma ordenada | `main.ts` |
-| Documentación no expuesta en producción (opcional) | La documentación interactiva completa se puede apagar para no publicar el mapa completo de la API | `main.ts` (`SWAGGER_ENABLED`) |
+| Documentación apagada por defecto | La documentación interactiva solo se activa con `SWAGGER_ENABLED=true`, para no publicar el mapa completo de la API por olvido | `main.ts` (`SWAGGER_ENABLED`) |
 
 ### Trazabilidad
 
