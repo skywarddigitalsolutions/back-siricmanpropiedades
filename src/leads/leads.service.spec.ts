@@ -122,6 +122,20 @@ describe('LeadsService', () => {
       expect(saved?.id).toBe('lead-1');
     });
 
+    it('stores the email lowercased and trimmed even if the DTO was not transformed', async () => {
+      await service.submit(
+        inquiry({
+          propertyId: undefined,
+          type: LeadType.CONTACT,
+          email: ' Juan@X.com ',
+        }),
+      );
+
+      expect(leadRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ email: 'juan@x.com' }),
+      );
+    });
+
     it('saves a contact message without a property', async () => {
       await service.submit(
         inquiry({

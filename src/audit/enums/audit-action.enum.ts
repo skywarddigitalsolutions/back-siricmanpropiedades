@@ -23,4 +23,5 @@ export enum AuditAction {
   PROPERTY_IMAGE_DELETED = 'property.image_deleted',
   LEAD_UPDATED = 'lead.updated',
   LEAD_DELETED = 'lead.deleted',
+  CLIENTS_EXPORTED = 'clients.exported',
 }

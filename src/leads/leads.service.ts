@@ -54,7 +54,7 @@ export class LeadsService {
       status: LeadStatus.NEW,
       name: dto.name,
       phone: dto.phone ?? null,
-      email: dto.email ?? null,
+      email: dto.email?.trim().toLowerCase() ?? null,
       message: dto.message || null,
       topic: dto.topic ?? null,
       details: dto.details ?? null,

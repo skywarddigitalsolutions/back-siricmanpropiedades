@@ -21,6 +21,10 @@ import { PropertyType } from '../../properties/enums/property.enums';
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
 
+/** Emails are case-insensitive: store them lowercased so clients dedupe. */
+const normalizeEmail = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim().toLowerCase() : value;
+
 /** Digits plus the usual separators: "+54 9 11 3896-7363", "(011) 4567 8901". */
 const PHONE_PATTERN = /^[0-9+()\s-]{6,30}$/;
 
@@ -93,7 +97,7 @@ export class CreateLeadDto {
   @ValidateIf(
     (dto: CreateLeadDto) => dto.email !== undefined || dto.phone === undefined,
   )
-  @Transform(trim)
+  @Transform(normalizeEmail)
   @IsEmail()
   @MaxLength(254)
   email?: string;
