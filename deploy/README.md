@@ -465,3 +465,59 @@ docker compose exec api node dist/cli/reset-password.js <usuario>
   el panel apenas entre.
 
 En desarrollo, con el `.env` local: `npm run admin:reset-password -- <usuario>`.
+
+### 11.2 Propiedades de demostración
+
+Para una presentación podés cargar 8 propiedades de ejemplo, publicadas y con
+fotos, y borrarlas por completo cuando termine. Las fotos no están en el repo:
+las descargaste en `deploy/demo/photos/` (fuentes en `deploy/demo/SOURCES.md`).
+
+**Antes de empezar:** tiene que estar corriendo la imagen de la API que incluye
+el comando. En el servidor:
+
+```bash
+cd ~/siricman
+docker compose pull && docker compose up -d
+```
+
+**Cargar las demos**
+
+1. Desde tu máquina, copiá las fotos al servidor:
+
+   ```bash
+   scp -P 5941 -r deploy/demo/photos siricman:~/siricman/demo-photos
+   ```
+
+2. En el servidor, pasalas al contenedor y corré el comando:
+
+   ```bash
+   cd ~/siricman
+   docker compose cp ~/siricman/demo-photos api:/tmp/demo-photos
+   docker compose exec api node dist/cli/demo-properties.js seed /tmp/demo-photos
+   ```
+
+   Imprime el código, el título y la cantidad de fotos de cada propiedad.
+3. Revisá el sitio: home, resultados, destacadas y fichas con fotos.
+
+**Borrarlas después de la presentación**
+
+```bash
+cd ~/siricman
+docker compose exec api node dist/cli/demo-properties.js remove
+docker compose exec api rm -rf /tmp/demo-photos
+rm -rf ~/siricman/demo-photos
+```
+
+Notas:
+
+- Mientras estén publicadas, **cualquier visitante real las ve y puede consultar
+  por ellas**. Cargalas poco antes de la presentación y borralas apenas termine.
+- `seed` se niega a correr si ya hay demos cargadas (queda un manifiesto en el
+  volumen de media); `remove` se niega si no hay manifiesto.
+- `remove` borra solo lo que creó `seed` (filas, fotos y archivos); las
+  propiedades reales no se tocan.
+- Las consultas (leads) hechas sobre una demo quedan guardadas sin propiedad
+  asociada.
+- Los códigos de propiedad siguen sin huecos: al borrar, el contador vuelve al
+  mayor código que queda.
+- La auditoría conserva el rastro (`property.created`, `property.deleted`, etc.).
