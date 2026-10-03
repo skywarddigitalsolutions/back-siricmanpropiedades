@@ -29,8 +29,8 @@
 
 | ID | Task | Route | Status | Commit |
 |----|------|-------|--------|--------|
-| T1 | Demo fixture + `seed`/`remove` CLI with manifest and sequence reset, tests | delegated | ⬜ | |
-| T2 | Download photos (gitignored `deploy/demo/photos/`), runbook steps | delegated | ⬜ | |
+| T1 | Demo fixture + `seed`/`remove` CLI with manifest and sequence reset, tests | delegated | ✅ | 55d5ac5 |
+| T2 | Download photos (gitignored `deploy/demo/photos/`), runbook steps | delegated | ✅ | 2d10431 |
 
 ## Acceptance criteria
 
@@ -40,7 +40,10 @@
 ## Progress
 
 - 2026-10-02: branch `feat/demo-properties`, doc created. RDD: off (default).
+- 2026-10-02 T1: RED (specs failed: modules not found), GREEN (24 tests: fixture validated with CreatePropertyDto rules and migration barrio slugs; manifest, sequence reset, image selection, args). CLI runs a Nest application context with a minimal module reusing PropertiesService + PropertyImagesService (same WebP/thumbnail pipeline). Audit: service entries (created/published/image_uploaded, no actor) plus `property.deleted` with `via: demo-cli` on remove.
+- 2026-10-02 dev run: before 1 property / 7 images / 14 media files / sequence 101,t. `demo:seed` created SP-102..SP-109 with 5 photos each; dev API listed 9 published, image URL 200 image/webp. `demo:remove`: 1 property / 7 images / 14 files / sequence back to 101,t, manifest deleted, API total 1.
+- 2026-10-02 T2: 40 Unsplash photos (14.0 MB) in gitignored `deploy/demo/photos/`, sources in `deploy/demo/SOURCES.md`, runbook 11.2 in `deploy/README.md`. lint, test (566), build green.
 
 ## Next step
 
-T1.
+Push, PR; user deploys and runs runbook 11.2.
