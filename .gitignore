@@ -31,3 +31,6 @@ Thumbs.db
 
 # coverage
 /coverage
+
+# Demo property photos (not committed; see deploy/demo/SOURCES.md)
+deploy/demo/photos/
