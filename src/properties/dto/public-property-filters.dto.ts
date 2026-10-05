@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   IsBoolean,
   IsEnum,
   IsIn,
@@ -8,6 +9,7 @@ import {
   IsString,
   Max,
   MaxLength,
+  Matches,
   Min,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
@@ -58,11 +60,18 @@ export class PublicPropertyFiltersDto {
   @IsEnum(PropertyType)
   type?: PropertyType;
 
-  @ApiPropertyOptional({ description: 'Neighborhood slug, e.g. "palermo"' })
+  @ApiPropertyOptional({
+    description:
+      'Neighborhood slug, or several comma-separated (max 10), e.g. "palermo,belgrano"',
+    type: String,
+  })
   @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  neighborhood?: string;
+  @Transform(({ value }: { value: unknown }) => toSlugList(value))
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @MaxLength(120, { each: true })
+  @Matches(/^[a-z0-9-]+$/, { each: true })
+  neighborhood?: string[];
 
   @ApiPropertyOptional({ minimum: 0 })
   @IsOptional()
@@ -183,4 +192,14 @@ export class PublicPropertyFiltersDto {
   @IsInt()
   @Min(0)
   offset?: number;
+}
+
+/** "Palermo, belgrano,palermo" → ["palermo", "belgrano"] (trimmed, lowercased, deduped). */
+function toSlugList(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const slugs = value
+    .split(',')
+    .map((slug) => slug.trim().toLowerCase())
+    .filter((slug) => slug.length > 0);
+  return [...new Set(slugs)];
 }

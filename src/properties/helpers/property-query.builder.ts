@@ -234,10 +234,10 @@ export function buildPublicPropertyQuery(
     });
   }
 
-  if (filters.neighborhood !== undefined) {
+  if (filters.neighborhood !== undefined && filters.neighborhood.length > 0) {
     where.push({
-      sql: `${NEIGHBORHOOD_ALIAS}.slug = :neighborhoodSlug`,
-      params: { neighborhoodSlug: filters.neighborhood },
+      sql: `${NEIGHBORHOOD_ALIAS}.slug IN (:...neighborhoodSlugs)`,
+      params: { neighborhoodSlugs: filters.neighborhood },
     });
   }
 

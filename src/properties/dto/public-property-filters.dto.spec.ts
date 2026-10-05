@@ -29,6 +29,39 @@ describe('PublicPropertyFiltersDto', () => {
     expect(errors.some((error) => error.property === 'type')).toBe(true);
   });
 
+  it('splits a comma-separated neighborhood list into normalized slugs', async () => {
+    const { dto, errors } = await validateDto({
+      neighborhood: ' Palermo, belgrano ,palermo,, ',
+    });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.neighborhood).toEqual(['palermo', 'belgrano']);
+  });
+
+  it('keeps a single neighborhood as a one-item list', async () => {
+    const { dto, errors } = await validateDto({ neighborhood: 'palermo' });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.neighborhood).toEqual(['palermo']);
+  });
+
+  it('rejects more than 10 neighborhoods', async () => {
+    const many = Array.from({ length: 11 }, (_, i) => `barrio-${i}`).join(',');
+    const { errors } = await validateDto({ neighborhood: many });
+
+    expect(errors.some((error) => error.property === 'neighborhood')).toBe(
+      true,
+    );
+  });
+
+  it('rejects a neighborhood slug with invalid characters', async () => {
+    const { errors } = await validateDto({ neighborhood: "palermo,o'reilly" });
+
+    expect(errors.some((error) => error.property === 'neighborhood')).toBe(
+      true,
+    );
+  });
+
   it('rejects an invalid sort value', async () => {
     const { errors } = await validateDto({ sort: 'cheapest' });
 

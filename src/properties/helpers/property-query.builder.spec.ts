@@ -260,15 +260,23 @@ describe('buildPublicPropertyQuery', () => {
     });
   });
 
-  it('adds an equality clause for the neighborhood slug', () => {
+  it('adds an IN clause for the neighborhood slugs', () => {
     const spec = buildPublicPropertyQuery(
-      publicFilters({ neighborhood: 'palermo' }),
+      publicFilters({ neighborhood: ['palermo', 'belgrano'] }),
     );
 
     expect(spec.where).toContainEqual({
-      sql: `${NEIGHBORHOOD_ALIAS}.slug = :neighborhoodSlug`,
-      params: { neighborhoodSlug: 'palermo' },
+      sql: `${NEIGHBORHOOD_ALIAS}.slug IN (:...neighborhoodSlugs)`,
+      params: { neighborhoodSlugs: ['palermo', 'belgrano'] },
     });
+  });
+
+  it('adds no neighborhood clause for an empty list', () => {
+    const spec = buildPublicPropertyQuery(publicFilters({ neighborhood: [] }));
+
+    expect(spec.where.some((clause) => clause.sql.includes('slug'))).toBe(
+      false,
+    );
   });
 
   it.each([
@@ -353,7 +361,7 @@ describe('buildPublicPropertyQuery', () => {
       publicFilters({
         operation: Operation.SALE,
         type: PropertyType.APARTMENT,
-        neighborhood: 'palermo',
+        neighborhood: ['palermo'],
         minRooms: 2,
         minBedrooms: 1,
         minBathrooms: 1,
