@@ -35,12 +35,22 @@ export class AppraisalDetailsDto {
   @IsEnum(PropertyType)
   propertyType?: PropertyType;
 
-  @ApiPropertyOptional({ description: 'Address and neighborhood' })
+  @ApiPropertyOptional({ description: 'Street address', maxLength: 200 })
   @IsOptional()
   @Transform(trim)
   @IsString()
   @MaxLength(200)
   address?: string;
+
+  @ApiPropertyOptional({
+    description: 'Neighborhood name, as listed by GET /neighborhoods',
+    maxLength: 100,
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(100)
+  neighborhood?: string;
 
   @ApiPropertyOptional({ minimum: 0, maximum: 50 })
   @IsOptional()

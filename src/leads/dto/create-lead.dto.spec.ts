@@ -111,6 +111,33 @@ describe('CreateLeadDto', () => {
     ).not.toEqual([]);
   });
 
+  it('accepts an optional neighborhood in the appraisal details, trimmed and limited', async () => {
+    const appraisal = (neighborhood: unknown) =>
+      validInquiry({
+        type: LeadType.APPRAISAL,
+        propertyId: undefined,
+        details: { neighborhood },
+      });
+
+    const dto = (await pipe.transform(
+      appraisal('  Palermo '),
+      asBody,
+    )) as CreateLeadDto;
+    expect(dto.details?.neighborhood).toBe('Palermo');
+    expect((await errorsFor(appraisal('x'.repeat(101))))[0]).toMatch(
+      /^details\.neighborhood/,
+    );
+    expect(
+      await errorsFor(
+        validInquiry({
+          type: LeadType.APPRAISAL,
+          propertyId: undefined,
+          details: {},
+        }),
+      ),
+    ).toEqual([]);
+  });
+
   it('keeps the honeypot field so the service can drop bot submissions', async () => {
     const dto = (await pipe.transform(
       validInquiry({ website: 'http://spam.example' }),
