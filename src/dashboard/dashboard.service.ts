@@ -2,14 +2,25 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Lead } from '../leads/entities/lead.entity';
-import { LeadStatus, LeadType } from '../leads/enums/lead.enums';
+import {
+  LeadCategory,
+  LeadStatus,
+  LeadTopic,
+  LeadType,
+} from '../leads/enums/lead.enums';
+import { leadCategoryOf } from '../leads/helpers/lead-category';
 import { Property } from '../properties/entities/property.entity';
 import { PublicationStatus } from '../properties/enums/property.enums';
 
 const LATEST_LEADS = 5;
 
 export interface DashboardSummary {
-  leads: { new: number; total: number };
+  leads: {
+    new: number;
+    total: number;
+    /** Leads with status `new`, grouped by the derived lead category. */
+    newByCategory: Record<LeadCategory, number>;
+  };
   properties: {
     draft: number;
     published: number;
@@ -21,6 +32,7 @@ export interface DashboardSummary {
     name: string;
     type: LeadType;
     status: LeadStatus;
+    topic: LeadTopic | null;
     createdAt: Date;
     property: { id: string; code: string; title: string } | null;
   }>;
@@ -36,7 +48,7 @@ export class DashboardService {
   ) {}
 
   async getSummary(): Promise<DashboardSummary> {
-    const [newLeads, totalLeads, latest, statusRows, withoutImages] =
+    const [newLeads, totalLeads, latest, statusRows, withoutImages, newRows] =
       await Promise.all([
         this.leadRepository.count({ where: { status: LeadStatus.NEW } }),
         this.leadRepository.count(),
@@ -60,7 +72,29 @@ export class DashboardService {
             'NOT EXISTS (SELECT 1 FROM property_images pi WHERE pi.property_id = property.id)',
           )
           .getCount(),
+        this.leadRepository
+          .createQueryBuilder('lead')
+          .select('lead.type', 'type')
+          .addSelect('lead.topic', 'topic')
+          .addSelect('COUNT(*)', 'count')
+          .where('lead.status = :status', { status: LeadStatus.NEW })
+          .groupBy('lead.type')
+          .addGroupBy('lead.topic')
+          .getRawMany<{
+            type: LeadType;
+            topic: LeadTopic | null;
+            count: string;
+          }>(),
       ]);
+
+    const newByCategory = {
+      [LeadCategory.APPRAISAL]: 0,
+      [LeadCategory.SEARCH]: 0,
+      [LeadCategory.MANAGEMENT]: 0,
+      [LeadCategory.OTHER]: 0,
+    };
+    for (const row of newRows)
+      newByCategory[leadCategoryOf(row.type, row.topic)] += Number(row.count);
 
     const byStatus = {
       [PublicationStatus.DRAFT]: 0,
@@ -70,7 +104,7 @@ export class DashboardService {
     for (const row of statusRows) byStatus[row.status] = Number(row.count);
 
     return {
-      leads: { new: newLeads, total: totalLeads },
+      leads: { new: newLeads, total: totalLeads, newByCategory },
       properties: {
         draft: byStatus[PublicationStatus.DRAFT],
         published: byStatus[PublicationStatus.PUBLISHED],
@@ -82,6 +116,7 @@ export class DashboardService {
         name: lead.name,
         type: lead.type,
         status: lead.status,
+        topic: lead.topic ?? null,
         createdAt: lead.createdAt,
         property: lead.property
           ? {

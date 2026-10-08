@@ -1,5 +1,5 @@
 import { buildLeadWhere } from './lead-query.builder';
-import { LeadStatus, LeadType } from '../enums/lead.enums';
+import { LeadCategory, LeadStatus, LeadType } from '../enums/lead.enums';
 
 describe('buildLeadWhere', () => {
   it('returns no clauses without filters', () => {
@@ -36,5 +36,22 @@ describe('buildLeadWhere', () => {
       '(lead.name ILIKE :q OR lead.email ILIKE :q OR lead.phone ILIKE :q OR lead.message ILIKE :q)',
     );
     expect(clause.params).toEqual({ q: String.raw`%100\%\_x%` });
+  });
+
+  it('adds the category clause and keeps it in the per-status counts', () => {
+    const filters = {
+      category: LeadCategory.APPRAISAL,
+      status: LeadStatus.NEW,
+      q: 'ana',
+    };
+
+    expect(buildLeadWhere(filters).map((c) => c.sql)).toEqual([
+      'lead.status = :status',
+      'lead.type = :catAppraisal',
+      expect.stringContaining('ILIKE'),
+    ]);
+    expect(
+      buildLeadWhere(filters, { includeStatus: false }).map((c) => c.sql),
+    ).toEqual(['lead.type = :catAppraisal', expect.stringContaining('ILIKE')]);
   });
 });

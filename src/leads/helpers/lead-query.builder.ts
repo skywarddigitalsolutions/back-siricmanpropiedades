@@ -1,10 +1,11 @@
+import { categoryWhere, LEAD_ALIAS } from './lead-category';
 import { AdminLeadFiltersDto } from '../dto/admin-lead.dto';
 import {
   escapeLikePattern,
   WhereClause,
 } from '../../properties/helpers/property-query.builder';
 
-export const LEAD_ALIAS = 'lead';
+export { LEAD_ALIAS };
 
 /**
  * `andWhere` clauses for the admin inbox filters. The per-status counts reuse
@@ -28,6 +29,9 @@ export function buildLeadWhere(
       sql: `${LEAD_ALIAS}.type = :type`,
       params: { type: filters.type },
     });
+  }
+  if (filters.category !== undefined) {
+    where.push(categoryWhere(filters.category));
   }
   if (filters.propertyId !== undefined) {
     where.push({
