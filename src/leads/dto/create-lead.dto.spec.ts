@@ -86,6 +86,18 @@ describe('CreateLeadDto', () => {
     ).toEqual([]);
   });
 
+  it('accepts the rental_management topic and rejects unknown topics', async () => {
+    const contact = (topic: unknown) =>
+      validInquiry({
+        type: LeadType.CONTACT,
+        propertyId: undefined,
+        topic,
+      });
+
+    expect(await errorsFor(contact('rental_management'))).toEqual([]);
+    expect((await errorsFor(contact('nope')))[0]).toMatch(/^topic/);
+  });
+
   it('limits the name and the message', async () => {
     expect((await errorsFor(validInquiry({ name: 'A' })))[0]).toMatch(/^name/);
     expect(
