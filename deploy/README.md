@@ -521,3 +521,20 @@ Notas:
 - Los códigos de propiedad siguen sin huecos: al borrar, el contador vuelve al
   mayor código que queda.
 - La auditoría conserva el rastro (`property.created`, `property.deleted`, etc.).
+
+### 11.3 Consultas de ejemplo (solo desarrollo)
+
+Para probar la bandeja de consultas y la vista de clientes en la base **local**
+podés cargar consultas falsas ("Demo · ...", emails `@example.com`):
+
+```bash
+npm run demo:leads -- seed     # crea 10 consultas
+npm run demo:leads -- remove   # borra exactamente las que creó seed
+```
+
+Cubre las cuatro categorías (tasación, búsqueda, administración, otras), los
+tres estados, fechas de los últimos días, una consulta cuya propiedad fue
+borrada (queda sin propiedad) y un cliente sin consultas por propiedad
+("Sin propiedad"). Guarda un manifiesto `.demo-leads.json` (ignorado por git);
+`seed` se niega si ya existe y ambos comandos se niegan a correr con
+`NODE_ENV=production`.

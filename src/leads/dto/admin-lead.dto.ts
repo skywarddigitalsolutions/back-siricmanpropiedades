@@ -10,7 +10,7 @@ import {
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { LeadStatus, LeadType } from '../enums/lead.enums';
+import { LeadCategory, LeadStatus, LeadType } from '../enums/lead.enums';
 
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
@@ -26,6 +26,15 @@ export class AdminLeadFiltersDto {
   @IsOptional()
   @IsEnum(LeadType)
   type?: LeadType;
+
+  @ApiPropertyOptional({
+    enum: LeadCategory,
+    description:
+      'Derived group: appraisal, search (inquiries + buy/rent), management (rental management/consortium) or other',
+  })
+  @IsOptional()
+  @IsEnum(LeadCategory)
+  category?: LeadCategory;
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Only this property' })
   @IsOptional()

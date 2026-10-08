@@ -1,5 +1,7 @@
-import { Controller, Get, Header, Query } from '@nestjs/common';
+import { Controller, Get, Header, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { clientsCsvFilename } from './helpers/csv';
 import { ClientsService, ClientSummary } from './clients.service';
 import {
   AdminClientExportDto,
@@ -27,12 +29,16 @@ export class AdminClientsController {
 
   @ApiOperation({ summary: 'Exportar clientes a CSV (auditado)' })
   @Header('Content-Type', 'text/csv; charset=utf-8')
-  @Header('Content-Disposition', 'attachment; filename="clientes.csv"')
   @Get('export.csv')
   exportCsv(
     @Query() filters: AdminClientExportDto,
     @GetUser() actor: User,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<string> {
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${clientsCsvFilename(new Date())}"`,
+    );
     return this.clientsService.exportCsv(filters, {
       id: actor.id,
       userName: actor.userName,

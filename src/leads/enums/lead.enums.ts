@@ -22,3 +22,14 @@ export enum LeadTopic {
   RENTAL_MANAGEMENT = 'rental_management',
   OTHER = 'other',
 }
+
+/**
+ * Derived grouping of leads for the admin inbox and dashboard (not stored).
+ * The single rule lives in `helpers/lead-category.ts`.
+ */
+export enum LeadCategory {
+  APPRAISAL = 'appraisal',
+  SEARCH = 'search',
+  MANAGEMENT = 'management',
+  OTHER = 'other',
+}
