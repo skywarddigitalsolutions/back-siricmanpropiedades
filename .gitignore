@@ -34,3 +34,6 @@ Thumbs.db
 
 # Demo property photos (not committed; see deploy/demo/SOURCES.md)
 deploy/demo/photos/
+
+# Demo leads manifest (local dev only; see npm run demo:leads)
+.demo-leads.json

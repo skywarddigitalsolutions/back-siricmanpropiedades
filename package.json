@@ -24,6 +24,7 @@
     "admin:reset-password": "ts-node -r dotenv/config src/cli/reset-password.ts",
     "demo:seed": "ts-node -r dotenv/config src/cli/demo-properties.ts seed",
     "demo:remove": "ts-node -r dotenv/config src/cli/demo-properties.ts remove",
+    "demo:leads": "ts-node -r dotenv/config src/cli/demo-leads.ts",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f db"
