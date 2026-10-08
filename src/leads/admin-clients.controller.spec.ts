@@ -13,10 +13,11 @@ describe('AdminClientsController', () => {
     ).toHaveLength(2);
   });
 
-  it('serves the export as a UTF-8 CSV attachment', async () => {
-    const service = { exportCsv: jest.fn().mockResolvedValue('﻿a\r\n') };
+  it('serves the export as a UTF-8 CSV attachment named by date', async () => {
+    const service = { exportCsv: jest.fn().mockResolvedValue('\uFEFFa\r\n') };
     const controller = new AdminClientsController(service as any);
     const handler = AdminClientsController.prototype.exportCsv;
+    const res = { setHeader: jest.fn() };
 
     expect(Reflect.getMetadata('__headers__', handler)).toEqual(
       expect.arrayContaining([
@@ -24,11 +25,21 @@ describe('AdminClientsController', () => {
       ]),
     );
     await expect(
-      controller.exportCsv({ q: 'x' }, { id: 'u', userName: 'g' } as any),
-    ).resolves.toBe('﻿a\r\n');
+      controller.exportCsv(
+        { q: 'x' },
+        { id: 'u', userName: 'g' } as any,
+        res as any,
+      ),
+    ).resolves.toBe('\uFEFFa\r\n');
     expect(service.exportCsv).toHaveBeenCalledWith(
       { q: 'x' },
       { id: 'u', userName: 'g' },
+    );
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Disposition',
+      expect.stringMatching(
+        /^attachment; filename="clientes-\d{4}-\d{2}-\d{2}\.csv"$/,
+      ),
     );
   });
 });

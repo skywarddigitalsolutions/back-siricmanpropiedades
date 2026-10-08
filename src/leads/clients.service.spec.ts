@@ -109,6 +109,19 @@ describe('ClientsService', () => {
   });
 
   describe('exportCsv', () => {
+    it('leaves empty cells for a client without phone or properties', async () => {
+      leadRepository.query
+        .mockResolvedValueOnce([{ total: 1 }])
+        .mockResolvedValueOnce([row()])
+        .mockResolvedValueOnce([]);
+
+      const csv = await service.exportCsv({}, ACTOR);
+
+      expect(csv.split('\r\n')[1]).toBe(
+        'juan@x.com;Juan;;2;01/09/2026 07:00;30/09/2026 07:00;',
+      );
+    });
+
     it('returns one row per client with a BOM and audits the export', async () => {
       leadRepository.query
         .mockResolvedValueOnce([{ total: 1 }])
@@ -117,19 +130,21 @@ describe('ClientsService', () => {
         ])
         .mockResolvedValueOnce([
           { email: 'juan@x.com', id: 'p1', code: 'SP-0001', title: 'Casa' },
+          { email: 'juan@x.com', id: 'p2', code: 'SP-0002', title: 'PH' },
         ]);
 
       const csv = await service.exportCsv({ q: 'juan' }, ACTOR);
 
-      expect(csv.startsWith('﻿')).toBe(true);
-      const lines = csv.slice(1).trimEnd().split('\r\n');
+      expect(csv.startsWith('\uFEFF')).toBe(true);
+      const lines = csv.slice(1).split('\r\n');
+      expect(lines.pop()).toBe('');
       expect(lines).toHaveLength(2);
       expect(lines[0]).toBe(
-        'email,name,phone,inquiries,firstInquiryAt,lastInquiryAt,properties',
+        'Email;Nombre;Teléfono;Consultas;Primera consulta;Última consulta;Propiedades',
       );
-      expect(lines[1]).toContain('"\'=HYPERLINK(""x"")"');
-      expect(lines[1]).toContain("'+54 9");
-      expect(lines[1]).toContain('SP-0001');
+      expect(lines[1]).toBe(
+        'juan@x.com;"\'=HYPERLINK(""x"")";\'+54 9;2;01/09/2026 07:00;30/09/2026 07:00;SP-0001, SP-0002',
+      );
       expect(auditLogService.record).toHaveBeenCalledWith({
         actor: ACTOR,
         action: AuditAction.CLIENTS_EXPORTED,

@@ -6,7 +6,7 @@ import {
   AdminClientExportDto,
   AdminClientFiltersDto,
 } from './dto/admin-client.dto';
-import { toCsv } from './helpers/csv';
+import { formatArgDateTime, toCsv } from './helpers/csv';
 import { Paginated } from '../common/interfaces/paginated.interface';
 import { AuditLogService } from '../audit/audit-log.service';
 import { AuditAction } from '../audit/enums/audit-action.enum';
@@ -76,22 +76,22 @@ export class ClientsService {
     });
     return toCsv(
       [
-        'email',
-        'name',
-        'phone',
-        'inquiries',
-        'firstInquiryAt',
-        'lastInquiryAt',
-        'properties',
+        'Email',
+        'Nombre',
+        'Teléfono',
+        'Consultas',
+        'Primera consulta',
+        'Última consulta',
+        'Propiedades',
       ],
       items.map((c) => [
         c.email,
         c.name,
         c.phone,
         c.inquiries,
-        c.firstInquiryAt,
-        c.lastInquiryAt,
-        c.properties.map((p) => p.code).join('; '),
+        formatArgDateTime(c.firstInquiryAt),
+        formatArgDateTime(c.lastInquiryAt),
+        c.properties.map((p) => p.code).join(', '),
       ]),
     );
   }
