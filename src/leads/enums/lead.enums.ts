@@ -18,5 +18,7 @@ export enum LeadTopic {
   RENT = 'rent',
   SELL = 'sell',
   CONSORTIUM = 'consortium',
+  /** Property owners asking for rental administration. */
+  RENTAL_MANAGEMENT = 'rental_management',
   OTHER = 'other',
 }
